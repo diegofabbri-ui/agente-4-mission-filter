@@ -1,4 +1,4 @@
-// src/index.ts
+// src/index.ts 
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import morgan from 'morgan';
@@ -31,12 +31,21 @@ app.set('aiProfileService', aiProfileService);
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Healthcheck
+// ---------- HEALTHCHECK PUBBLICO (USATO DA RAILWAY) ----------
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    env: process.env.NODE_ENV,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ---------- HEALTHCHECK INTERNO ----------
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API routes
+// ---------- API ROUTES ----------
 app.use('/api', missionsRouter);
 
 // 404 handler
