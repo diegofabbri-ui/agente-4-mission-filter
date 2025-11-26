@@ -2,7 +2,8 @@
 
 import Stripe from 'stripe';
 
-const STRIPE_API_VERSION: Stripe.StripeConfig['apiVersion'] = '2024-06-20';
+// Usare undefined evita errori con le versioni aggiornate delle API Stripe
+const STRIPE_API_VERSION = undefined;
 
 export class StripeService {
   private stripe: Stripe;

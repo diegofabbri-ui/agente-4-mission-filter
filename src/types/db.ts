@@ -6,12 +6,22 @@ import {
   UserMissionHistoryRow,
   MissionFilterRow,
   AIAuditLogRow,
-  RawMissionInput,
 } from "./mission-filter.types";
 
 /**
+ * Tipi della tabella earnings
+ */
+export interface EarningsRow {
+  id: string;
+  user_id: string;
+  mission_id: string | null;
+  amount: number;
+  status: string;
+  received_at: string | null;
+}
+
+/**
  * Struttura tipizzata del database per Kysely.
- * Serve SOLO per type safety, non per generare migrazioni.
  */
 export interface DB {
   users: UserRow;
@@ -51,4 +61,6 @@ export interface DB {
   user_ai_profile: UserAIProfileRow;
 
   user_mission_history: UserMissionHistoryRow;
+
+  earnings: EarningsRow;
 }

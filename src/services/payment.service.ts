@@ -1,7 +1,7 @@
 // src/services/payment.service.ts
 
 import crypto from 'crypto';
-import { Kysely, sql } from 'kysely';
+import { Kysely, sql, SqlBool } from 'kysely';
 
 import type { DB } from '../types/db';
 import { StripeService } from './stripe.service';
@@ -52,12 +52,12 @@ export class PaymentService {
       .select(['amount'])
       .where('user_id', '=', userId)
       .where(
-        sql`date_trunc('month', received_at) = date_trunc('month', ${referenceDate.toISOString()}::timestamptz)`,
+        sql<SqlBool>`date_trunc('month', received_at) = date_trunc('month', ${referenceDate.toISOString()}::timestamptz)`,
       )
       .execute();
 
     const monthlyVolumeBefore = monthlyRows.reduce(
-      (acc, row) => acc + Number(row.amount),
+      (acc: number, row: { amount: number }) => acc + Number(row.amount),
       0,
     );
 
