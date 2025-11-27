@@ -1,11 +1,22 @@
 // src/components/RecommendationsList.tsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { MissionCard, MissionSummary, AIMissionMeta, ScoreFactor } from "./MissionCard";
+
+// Import normale del componente
+import { MissionCard } from "./MissionCard";
+
+// Import SOLO dei tipi (richiesto da verbatimModuleSyntax)
+import type {
+  MissionSummary,
+  AIMissionMeta,
+  ScoreFactor,
+} from "./MissionCard";
+
 import { AIExplanation } from "./AIExplanation";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
+// Tipo missione proveniente dal backend
 export type RecommendedMissionApi = {
   id: string;
   title: string;
@@ -19,20 +30,15 @@ export type RecommendedMissionApi = {
     overall: number;
     isScam: boolean;
     riskLabel?: string;
-    factors: {
-      key: string;
-      label: string;
-      score: number;
-      weight?: number;
-    }[];
+    factors: ScoreFactor[];
     reasoning?: string;
   };
 };
 
 type RecommendationsListProps = {
-  limit?: number; // di default 5
-  token?: string; // JWT se vuoi auth Bearer
-  showExplanationForFirst?: boolean; // opzionale: mostra breakdown dettagliato per la prima missione
+  limit?: number;
+  token?: string;
+  showExplanationForFirst?: boolean;
   onSelectMission?: (mission: RecommendedMissionApi) => void;
   onAcceptMission?: (mission: RecommendedMissionApi) => void;
 };
@@ -66,13 +72,12 @@ export const RecommendationsList: React.FC<RecommendationsListProps> = ({
           { headers }
         );
 
-        if (!cancelled) {
-          const data = response.data ?? [];
-          const sliced = limit > 0 ? data.slice(0, limit) : data;
-          setMissions(sliced);
-        }
+        if (cancelled) return;
+
+        const data = response.data ?? [];
+        const sliced = limit > 0 ? data.slice(0, limit) : data;
+        setMissions(sliced);
       } catch (err: any) {
-        console.error("Error fetching recommendations", err);
         if (!cancelled) {
           setError(
             err?.response?.data?.message ??
@@ -92,13 +97,14 @@ export const RecommendationsList: React.FC<RecommendationsListProps> = ({
   }, [limit, token]);
 
   const handleSelect = (mission: RecommendedMissionApi) => {
-    if (onSelectMission) onSelectMission(mission);
+    onSelectMission?.(mission);
   };
 
   const handleAccept = (mission: RecommendedMissionApi) => {
-    if (onAcceptMission) onAcceptMission(mission);
+    onAcceptMission?.(mission);
   };
 
+  // --- LOADING ---
   if (loading) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
@@ -107,26 +113,31 @@ export const RecommendationsList: React.FC<RecommendationsListProps> = ({
     );
   }
 
+  // --- ERROR ---
   if (error) {
     return (
       <div className="rounded-xl border border-rose-800/80 bg-rose-950/50 p-4">
-        <p className="text-sm font-semibold text-rose-200">Qualcosa è andato storto</p>
+        <p className="text-sm font-semibold text-rose-200">
+          Qualcosa è andato storto
+        </p>
         <p className="mt-1 text-xs text-rose-200/80">{error}</p>
       </div>
     );
   }
 
+  // --- EMPTY ---
   if (!missions.length) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
         <p className="text-sm text-slate-300">
-          Nessuna missione consigliata al momento. Aggiungi qualche missione o aggiorna il tuo
-          profilo per far lavorare l&apos;agente.
+          Nessuna missione consigliata al momento.  
+          Aggiungi missioni o aggiorna il profilo per far lavorare l’agente.
         </p>
       </div>
     );
   }
 
+  // --- CONTENT ---
   return (
     <div className="space-y-4">
       <div className="flex items-baseline justify-between">
@@ -157,7 +168,7 @@ export const RecommendationsList: React.FC<RecommendationsListProps> = ({
             overallScore: m.aiScore.overall,
             isScam: m.aiScore.isScam,
             riskLabel: m.aiScore.riskLabel,
-            factors: (m.aiScore.factors ?? []) as ScoreFactor[],
+            factors: m.aiScore.factors,
             reasoning: m.aiScore.reasoning,
           };
 
@@ -169,6 +180,7 @@ export const RecommendationsList: React.FC<RecommendationsListProps> = ({
                 onSelect={() => handleSelect(m)}
                 onAccept={() => handleAccept(m)}
               />
+
               {showExplanationForFirst && index === 0 && (
                 <AIExplanation
                   overallScore={ai.overallScore}

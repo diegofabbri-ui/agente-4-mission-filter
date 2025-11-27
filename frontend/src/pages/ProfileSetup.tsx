@@ -53,11 +53,10 @@ export default function ProfileSetup() {
   });
 
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">(
-    "idle",
+    "idle"
   );
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Legge snapshot dashboard (FILE #1 logico: primo dato reale dell’utente)
   useEffect(() => {
     const fetchDashboard = async () => {
       setLoadingDashboard(true);
@@ -65,14 +64,14 @@ export default function ProfileSetup() {
       try {
         const res = await axios.get<DashboardResponse>(
           `${API_BASE_URL}/api/user/dashboard`,
-          { headers: getAuthHeaders() },
+          { headers: getAuthHeaders() }
         );
         setDashboard(res.data.summary);
       } catch (err: any) {
         if (err?.response?.status === 401) {
-          setDashboardError("Non sei autenticato. Effettua il login prima.");
+          setDashboardError("Non sei autenticato.");
         } else {
-          setDashboardError("Impossibile caricare la dashboard utente.");
+          setDashboardError("Errore nel caricamento dashboard.");
         }
       } finally {
         setLoadingDashboard(false);
@@ -83,18 +82,17 @@ export default function ProfileSetup() {
   }, []);
 
   const onSubmit = async (values: ProfileFormValues) => {
-    setSaveStatus("idle");
     setSaveError(null);
+    setSaveStatus("idle");
 
-    // Validazione Zod -> mapping sugli errori del form
     try {
       const parsed = profileSchema.parse(values);
 
+      const raw = parsed.preferredCategories ?? "";
       const preferredCategoriesArray =
-        parsed.preferredCategories
-          ?.split(",")
-          .map((s) => s.trim())
-          .filter(Boolean) ?? [];
+        typeof raw === "string" && raw.trim().length > 0
+          ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+          : [];
 
       await axios.patch(
         `${API_BASE_URL}/api/user/profile`,
@@ -103,7 +101,7 @@ export default function ProfileSetup() {
           minHourlyRate: parsed.minHourlyRate,
           preferredCategories: preferredCategoriesArray,
         },
-        { headers: getAuthHeaders() },
+        { headers: getAuthHeaders() }
       );
 
       setSaveStatus("success");
@@ -111,9 +109,8 @@ export default function ProfileSetup() {
       if (err instanceof z.ZodError) {
         const fieldErrors = err.flatten().fieldErrors;
         for (const [key, messages] of Object.entries(fieldErrors)) {
-          if (messages && messages.length > 0) {
-            // @ts-expect-error dynamic key mapping
-            setError(key, { type: "manual", message: messages[0] });
+          if (Array.isArray(messages) && messages.length > 0) {
+            setError(key as any, { type: "manual", message: messages[0] });
           }
         }
         setSaveStatus("error");
@@ -121,37 +118,31 @@ export default function ProfileSetup() {
         return;
       }
 
-      if (err?.response?.status === 401) {
-        setSaveError("Non sei autenticato. Effettua il login prima.");
-      } else {
-        setSaveError("Errore durante il salvataggio del profilo.");
-      }
       setSaveStatus("error");
+      setSaveError("Errore durante il salvataggio del profilo.");
     }
   };
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
       <div className="flex flex-col md:flex-row gap-8">
+        {/* LEFT */}
         <section className="flex-1 space-y-4">
           <h1 className="text-2xl font-bold">Profilo utente</h1>
-          <p className="text-gray-600 text-sm">
-            Qui definisci le tue preferenze base: il sistema le usa per
-            valutare payout/tempo delle missioni e personalizzare i punteggi.
-          </p>
 
           <form
             onSubmit={handleSubmit(onSubmit)}
             className="mt-4 space-y-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100"
           >
+            {/* Nome */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Nome completo
               </label>
               <input
                 type="text"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black"
                 {...register("fullName")}
+                className="w-full rounded-md border px-3 py-2 text-sm"
               />
               {errors.fullName && (
                 <p className="text-xs text-red-600 mt-1">
@@ -160,15 +151,15 @@ export default function ProfileSetup() {
               )}
             </div>
 
+            {/* Rate */}
             <div>
               <label className="block text-sm font-medium mb-1">
-                Tariffa oraria minima desiderata (€)
+                Tariffa minima (€)
               </label>
               <input
                 type="number"
-                step="0.5"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black"
                 {...register("minHourlyRate", { valueAsNumber: true })}
+                className="w-full rounded-md border px-3 py-2 text-sm"
               />
               {errors.minHourlyRate && (
                 <p className="text-xs text-red-600 mt-1">
@@ -177,15 +168,15 @@ export default function ProfileSetup() {
               )}
             </div>
 
+            {/* Categorie */}
             <div>
               <label className="block text-sm font-medium mb-1">
-                Categorie preferite (separate da virgola)
+                Categorie preferite
               </label>
               <textarea
                 rows={3}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black"
-                placeholder="es: copywriting, customer support, data entry"
                 {...register("preferredCategories")}
+                className="w-full rounded-md border px-3 py-2 text-sm"
               />
               {errors.preferredCategories && (
                 <p className="text-xs text-red-600 mt-1">
@@ -199,56 +190,49 @@ export default function ProfileSetup() {
             )}
             {saveStatus === "success" && (
               <p className="text-sm text-green-600 mt-2">
-                Profilo aggiornato con successo ✅
+                Profilo aggiornato con successo
               </p>
             )}
 
             <button
               type="submit"
               disabled={isSubmitting}
-              className="mt-2 inline-flex items-center justify-center rounded-md bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-60"
+              className="bg-black text-white px-4 py-2 rounded-md text-sm font-semibold"
             >
-              {isSubmitting ? "Salvataggio in corso..." : "Salva profilo"}
+              {isSubmitting ? "Salvataggio…" : "Salva profilo"}
             </button>
           </form>
         </section>
 
+        {/* RIGHT */}
         <section className="w-full md:w-80 space-y-4">
-          <h2 className="text-sm font-semibold text-gray-700">
-            Snapshot attuale
-          </h2>
+          <h2 className="text-sm font-semibold">Dashboard</h2>
+
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-sm">
-            {loadingDashboard && (
-              <p className="text-gray-500 text-sm">Caricamento dati...</p>
-            )}
-            {dashboardError && (
-              <p className="text-red-600 text-sm">{dashboardError}</p>
-            )}
+            {loadingDashboard && <p>Caricamento…</p>}
+            {dashboardError && <p className="text-red-600">{dashboardError}</p>}
+
             {dashboard && (
               <div className="space-y-2">
                 <p>
-                  <span className="font-semibold">Entrate totali:</span>{" "}
-                  €{dashboard.totalEarnings.toFixed(2)}
+                  <strong>Entrate totali:</strong> €
+                  {dashboard.totalEarnings.toFixed(2)}
                 </p>
                 <p>
-                  <span className="font-semibold">Missioni completate:</span>{" "}
+                  <strong>Missioni completate:</strong>{" "}
                   {dashboard.missionsCompleted}
                 </p>
                 <p>
-                  <span className="font-semibold">Missioni attive:</span>{" "}
-                  {dashboard.activeMissions}
+                  <strong>Missioni attive:</strong> {dashboard.activeMissions}
                 </p>
                 <p>
-                  <span className="font-semibold">Streak (giorni):</span>{" "}
-                  {dashboard.streakDays}
+                  <strong>Streak:</strong> {dashboard.streakDays} giorni
                 </p>
               </div>
             )}
+
             {!loadingDashboard && !dashboard && !dashboardError && (
-              <p className="text-gray-500">
-                Nessun dato ancora. Completa qualche missione per popolare la
-                dashboard.
-              </p>
+              <p>Nessun dato disponibile.</p>
             )}
           </div>
         </section>
@@ -256,3 +240,4 @@ export default function ProfileSetup() {
     </div>
   );
 }
+
