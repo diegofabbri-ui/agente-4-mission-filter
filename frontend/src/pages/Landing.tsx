@@ -3,58 +3,82 @@ import { Link } from "react-router-dom";
 
 export default function Landing() {
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center gap-8 text-center">
-      <div className="space-y-4 max-w-xl">
-        <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
+    <div className="space-y-10">
+      <div className="text-center space-y-4">
+        <h1 className="text-3xl font-bold tracking-tight">
           Il tuo agente AI per filtrare le missioni 💼🤖
         </h1>
-        <p className="text-gray-600 text-lg">
+        <p className="text-gray-600 max-w-xl mx-auto text-sm">
           Collega il tuo profilo, aggiungi le missioni che trovi online e lascia
-          che l’AI le analizzi per te: rischio, payout, tempo e crescita,
-          tutto in un unico cruscotto.
+          che l’AI le analizzi per te: rischio, payout, tempo e crescita.  
+          Tutto in un unico cruscotto operativo.
         </p>
       </div>
 
-      <div className="flex flex-wrap justify-center gap-4">
+      {/* CTA grid */}
+      <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+
         <Link
           to="/profile"
-          className="px-6 py-3 rounded-lg bg-black text-white font-semibold hover:bg-gray-900 transition"
+          className="border rounded-xl p-6 hover:bg-gray-50 transition flex flex-col gap-2"
         >
-          1. Configura il tuo profilo
+          <h2 className="font-semibold text-lg">1. Configura il tuo profilo</h2>
+          <p className="text-gray-500 text-sm">
+            Imposta la tua tariffa ideale e le tue categorie.  
+            L’AI si adatta a te.
+          </p>
         </Link>
+
         <Link
-          to="/missions/new"
-          className="px-6 py-3 rounded-lg border border-gray-300 font-semibold hover:bg-gray-100 transition"
+          to="/add-mission"
+          className="border rounded-xl p-6 hover:bg-gray-50 transition flex flex-col gap-2"
         >
-          2. Aggiungi una missione
+          <h2 className="font-semibold text-lg">2. Aggiungi una missione</h2>
+          <p className="text-gray-500 text-sm">
+            Incolla offerte da Upwork, LinkedIn, Fiverr o dove vuoi.  
+            Il sistema le raccoglie e le valuta.
+          </p>
         </Link>
+
         <Link
-          to="/missions/ai"
-          className="px-6 py-3 rounded-lg border border-blue-500 text-blue-600 font-semibold hover:bg-blue-50 transition"
+          to="/ai"
+          className="border rounded-xl p-6 hover:bg-gray-50 transition flex flex-col gap-2"
         >
-          3. Vedi le raccomandazioni AI
+          <h2 className="font-semibold text-lg">
+            3. Vedi le raccomandazioni AI
+          </h2>
+          <p className="text-gray-500 text-sm">
+            Il motore W-MOON confronta compenso, rischio e tempo e ti mostra le
+            migliori.
+          </p>
         </Link>
       </div>
 
-      <div className="mt-10 grid gap-4 md:grid-cols-3 max-w-4xl w-full">
-        <div className="p-4 rounded-xl bg-white shadow-sm border border-gray-100">
-          <h2 className="font-semibold mb-1">Filtro anti-spreco</h2>
-          <p className="text-sm text-gray-600">
+      {/* Feature grid */}
+      <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+
+        <div className="border rounded-xl p-6 flex flex-col gap-2">
+          <h3 className="font-semibold">Filtro anti-spreco</h3>
+          <p className="text-gray-500 text-sm">
             Il motore W-MOON valuta payout, tempo e rischio su ogni missione.
           </p>
         </div>
-        <div className="p-4 rounded-xl bg-white shadow-sm border border-gray-100">
-          <h2 className="font-semibold mb-1">Dashboard entrate</h2>
-          <p className="text-sm text-gray-600">
-            Tracci le entrate verificate e le missioni completate in un colpo d’occhio.
+
+        <div className="border rounded-xl p-6 flex flex-col gap-2">
+          <h3 className="font-semibold">Dashboard entrate</h3>
+          <p className="text-gray-500 text-sm">
+            Tracci le entrate verificate e le missioni completate in un colpo
+            d’occhio.
           </p>
         </div>
-        <div className="p-4 rounded-xl bg-white shadow-sm border border-gray-100">
-          <h2 className="font-semibold mb-1">Apprendimento continuo</h2>
-          <p className="text-sm text-gray-600">
+
+        <div className="border rounded-xl p-6 flex flex-col gap-2">
+          <h3 className="font-semibold">Apprendimento continuo</h3>
+          <p className="text-gray-500 text-sm">
             Il sistema impara dalle tue scelte e adatta i punteggi futuri.
           </p>
         </div>
+
       </div>
     </div>
   );
