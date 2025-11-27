@@ -1,18 +1,46 @@
-// src/index.ts 
-import 'dotenv/config';
-import express, { Request, Response, NextFunction } from 'express';
-import morgan from 'morgan';
-import { missionsRouter } from './routes/missions.routes';
-import { db } from './infra/db';
-import { openai } from './infra/openai';
-import { MissionFilterService } from './services/mission-filter.service';
-import { UserAIProfileService } from './services/ai-profile.service';
+// src/index.ts
+import "dotenv/config";
+import express, { Request, Response, NextFunction } from "express";
+import morgan from "morgan";
+import cors from "cors";
+
+import { missionsRouter } from "./routes/missions.routes";
+import userRouter from "./routes/user.routes";
+
+import { db } from "./infra/db";
+import { openai } from "./infra/openai";
+
+import { MissionFilterService } from "./services/mission-filter.service";
+import { UserAIProfileService } from "./services/ai-profile.service";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ---------- SERVIZI CORE ----------
+// ----------------------------
+// 1) CORS CONFIG (necessario per Vercel)
+// ----------------------------
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://agente-4-mission-filter-frontend.vercel.app",
+];
 
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  }),
+);
+
+// ----------------------------
+// 2) MIDDLEWARE GLOBALI
+// ----------------------------
+app.use(express.json());
+app.use(morgan("dev"));
+
+// ----------------------------
+// 3) SERVIZI CORE (MissionFilter + Profili AI)
+// ----------------------------
 const missionFilterService = new MissionFilterService({
   db,
   openai,
@@ -21,56 +49,69 @@ const missionFilterService = new MissionFilterService({
 
 const aiProfileService = new UserAIProfileService(db);
 
-// Mettiamo tutto in app.locals per usarlo nei router
-app.set('db', db);
-app.set('missionFilterService', missionFilterService);
-app.set('aiProfileService', aiProfileService);
+// Disponibili ovunque
+app.set("db", db);
+app.set("missionFilterService", missionFilterService);
+app.set("aiProfileService", aiProfileService);
 
-// ---------- MIDDLEWARE GLOBALI ----------
-
-app.use(express.json());
-app.use(morgan('dev'));
-
-// ---------- HEALTHCHECK PUBBLICO (USATO DA RAILWAY) ----------
-app.get('/api/health', (_req: Request, res: Response) => {
+// ----------------------------
+// 4) HEALTHCHECK (public + internal)
+// ----------------------------
+app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
-    status: 'ok',
+    status: "ok",
     env: process.env.NODE_ENV,
     timestamp: new Date().toISOString(),
   });
 });
 
-// ---------- HEALTHCHECK INTERNO ----------
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Per Railway
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// ---------- API ROUTES ----------
-app.use('/api', missionsRouter);
+// ----------------------------
+// 5) API ROUTES
+// ----------------------------
 
-// 404 handler
+// Tutte le missioni / AI / invii automatici
+app.use("/api", missionsRouter);
+
+// NUOVA ROUTE DASHBOARD
+app.use("/api/user", userRouter);
+
+// ----------------------------
+// 6) 404 HANDLER
+// ----------------------------
 app.use((req: Request, res: Response) => {
   return res.status(404).json({
-    error: 'Endpoint non trovato',
+    error: "Endpoint non trovato",
     path: req.originalUrl,
   });
 });
 
-// Error handler globale
+// ----------------------------
+// 7) GLOBAL ERROR HANDLER
+// ----------------------------
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('Errore non gestito:', err);
+  console.error("Errore non gestito:", err);
 
   const status = err.statusCode || err.status || 500;
   const message =
-    err.message || 'Errore interno del server. Riprova più tardi.';
+    err.message || "Errore interno del server. Riprova più tardi.";
 
   return res.status(status).json({
     error: message,
   });
 });
 
-// Avvio server
+// ----------------------------
+// 8) AVVIO SERVER
+// ----------------------------
 app.listen(PORT, () => {
   console.log(`🚀 Server avviato su http://localhost:${PORT}`);
 });
