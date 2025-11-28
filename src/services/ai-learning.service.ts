@@ -2,7 +2,11 @@
 
 import { Kysely, sql } from "kysely";
 import { DB } from "../types/db";
-import { MissionOutcome, AccuracyMetrics, computeAccuracyMetrics } from "../utils/accuracy-metrics";
+import {
+  MissionOutcome,
+  AccuracyMetrics,
+  computeAccuracyMetrics
+} from "../utils/accuracy-metrics";
 
 export class AILearningService {
   constructor(private db: Kysely<DB>) {}
@@ -24,7 +28,8 @@ export class AILearningService {
         eb.ref("h.action_timestamp").as("timestamp"),
       ])
       .where(eb => eb("h.user_id", "=", userId))
-      .where(eb => eb("h.action_timestamp", ">=", since))
+      // 🔥 FIX: railway non accetta Date → serve ISO string
+      .where(eb => eb("h.action_timestamp", ">=", since.toISOString()))
       .execute();
 
     return rows.map(r => ({
@@ -39,18 +44,18 @@ export class AILearningService {
 
   async runLearningForUser(userId: string): Promise<AccuracyMetrics> {
     const outcomes = await this.getOutcomesForUser(userId);
-
     const metrics = computeAccuracyMetrics(outcomes);
 
+    // 🔥 FIX: decision_type deve essere uno dei valori del tuo enum → "INFO"
+    // 🔥 FIX: mission_id non va passato se null
     await this.db
       .insertInto("ai_audit_log")
       .values({
         id: sql`gen_random_uuid()`,
         user_id: userId,
-        mission_id: null,
-        snapshot_weights: null,
-        decision_type: "learning_run",
+        decision_type: "INFO",
         explanation: JSON.stringify(metrics),
+        snapshot_weights: null,
         created_at: sql`NOW()`,
       })
       .execute();
@@ -61,7 +66,7 @@ export class AILearningService {
   async runLearningForAllUsers(): Promise<{ userId: string; metrics: AccuracyMetrics }[]> {
     const users = await this.db.selectFrom("users").select("id").execute();
 
-    const results: { userId: string; metrics: AccuracyMetrics }[] = [];
+    const results = [];
 
     for (const u of users) {
       const metrics = await this.runLearningForUser(u.id);
