@@ -11,7 +11,10 @@ import {
 export class AILearningService {
   constructor(private db: Kysely<DB>) {}
 
-  async getOutcomesForUser(userId: string, windowDays = 30): Promise<MissionOutcome[]> {
+  async getOutcomesForUser(
+    userId: string,
+    windowDays = 30
+  ): Promise<MissionOutcome[]> {
     const since = new Date();
     since.setDate(since.getDate() - windowDays);
 
@@ -27,12 +30,13 @@ export class AILearningService {
         eb.ref("h.feedback_rating").as("rating"),
         eb.ref("h.action_timestamp").as("timestamp"),
       ])
-      .where(eb => eb("h.user_id", "=", userId))
-      // 🔥 FIX: railway non accetta Date → serve ISO string
-      .where(eb => eb("h.action_timestamp", ">=", since.toISOString()))
+      .where((eb) => eb("h.user_id", "=", userId))
+      .where((eb) =>
+        eb("h.action_timestamp", ">=", since.toISOString())
+      )
       .execute();
 
-    return rows.map(r => ({
+    return rows.map((r) => ({
       missionId: r.missionId as string,
       userId: r.userId as string,
       score: Number(r.score),
@@ -46,14 +50,17 @@ export class AILearningService {
     const outcomes = await this.getOutcomesForUser(userId);
     const metrics = computeAccuracyMetrics(outcomes);
 
-    // 🔥 FIX: decision_type deve essere uno dei valori del tuo enum → "INFO"
-    // 🔥 FIX: mission_id non va passato se null
+    // Insert log → typed for ai_audit_log
     await this.db
       .insertInto("ai_audit_log")
       .values({
         id: sql`gen_random_uuid()`,
+
+        // Required column
+        mission_id: sql`NULL`, // typed null for Supabase pg
+
         user_id: userId,
-        decision_type: "INFO",
+        decision_type: "INFO", // enum-safe
         explanation: JSON.stringify(metrics),
         snapshot_weights: null,
         created_at: sql`NOW()`,
@@ -63,10 +70,15 @@ export class AILearningService {
     return metrics;
   }
 
-  async runLearningForAllUsers(): Promise<{ userId: string; metrics: AccuracyMetrics }[]> {
-    const users = await this.db.selectFrom("users").select("id").execute();
+  async runLearningForAllUsers(): Promise<
+    { userId: string; metrics: AccuracyMetrics }[]
+  > {
+    const users = await this.db
+      .selectFrom("users")
+      .select("id")
+      .execute();
 
-    const results = [];
+    const results: { userId: string; metrics: AccuracyMetrics }[] = [];
 
     for (const u of users) {
       const metrics = await this.runLearningForUser(u.id);
