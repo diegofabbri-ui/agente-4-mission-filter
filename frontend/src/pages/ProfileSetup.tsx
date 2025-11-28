@@ -3,7 +3,6 @@ import axios from "axios";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 
-// Backend Railway (stabile)
 const API_BASE_URL =
   "https://agente-4-mission-filter-production.up.railway.app";
 
@@ -36,15 +35,13 @@ interface DashboardResponse {
   summary: DashboardSummary;
 }
 
-// ---------------------
-
 export default function ProfileSetup() {
   // Stato dashboard
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
 
-  // Stato form profilo
+  // Form profilo
   const {
     register,
     handleSubmit,
@@ -64,7 +61,7 @@ export default function ProfileSetup() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // ---------------------
-  // CARICAMENTO DASHBOARD
+  // CARICA DASHBOARD
   // ---------------------
   useEffect(() => {
     async function loadDashboard() {
@@ -74,7 +71,7 @@ export default function ProfileSetup() {
         const res = await fetch(`${API_BASE_URL}/api/user/dashboard`);
 
         if (!res.ok) {
-          setDashboardError("Errore nel caricamento dashboard.");
+          setDashboardError("Errore nel caricamento della dashboard.");
           setLoadingDashboard(false);
           return;
         }
@@ -98,13 +95,14 @@ export default function ProfileSetup() {
     setSaveError(null);
     setSaveStatus("idle");
 
-    try:
+    try {
       const parsed = profileSchema.parse(values);
 
-      const preferred = parsed.preferredCategories
-        ?.split(",")
-        .map((v) => v.trim())
-        .filter(Boolean);
+      const preferred =
+        parsed.preferredCategories
+          ?.split(",")
+          .map((v) => v.trim())
+          .filter(Boolean) ?? [];
 
       await axios.patch(`${API_BASE_URL}/api/user/profile`, {
         fullName: parsed.fullName,
@@ -116,6 +114,7 @@ export default function ProfileSetup() {
     } catch (err: any) {
       if (err instanceof z.ZodError) {
         const fieldErrors = err.flatten().fieldErrors;
+
         for (const [key, messages] of Object.entries(fieldErrors)) {
           if (Array.isArray(messages) && messages.length > 0) {
             setError(key as any, {
@@ -124,13 +123,14 @@ export default function ProfileSetup() {
             });
           }
         }
+
         setSaveStatus("error");
-        setSaveError("Errori nei dati inseriti.");
+        setSaveError("Ci sono errori nei dati inseriti.");
         return;
       }
 
       setSaveStatus("error");
-      setSaveError("Errore durante il salvataggio.");
+      setSaveError("Errore durante il salvataggio del profilo.");
     }
   };
 
@@ -148,7 +148,7 @@ export default function ProfileSetup() {
             onSubmit={handleSubmit(onSubmit)}
             className="mt-4 space-y-4 bg-gray-900 border border-gray-700 p-6 rounded-xl"
           >
-            {/* Nome completo */}
+            {/* Nome */}
             <div>
               <label className="block text-sm opacity-70 mb-1">
                 Nome completo
