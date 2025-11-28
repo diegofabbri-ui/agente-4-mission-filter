@@ -1,6 +1,6 @@
 // src/index.ts
 import "dotenv/config";
-import express, { Request, Response, NextFunction } from "express";
+import express from "express";
 import morgan from "morgan";
 import cors from "cors";
 
@@ -16,31 +16,9 @@ import { UserAIProfileService } from "./services/ai-profile.service";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ----------------------------
-// 1) CORS CONFIG (necessario per Vercel)
-// ----------------------------
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://agente-4-mission-filter-frontend.vercel.app",
-];
-
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  }),
-);
-
-// ----------------------------
-// 2) MIDDLEWARE GLOBALI
-// ----------------------------
-app.use(express.json());
-app.use(morgan("dev"));
-
-// ----------------------------
-// 3) SERVIZI CORE (MissionFilter + Profili AI)
-// ----------------------------
+// ---------------------
+// SERVIZI CORE
+// ---------------------
 const missionFilterService = new MissionFilterService({
   db,
   openai,
@@ -49,69 +27,59 @@ const missionFilterService = new MissionFilterService({
 
 const aiProfileService = new UserAIProfileService(db);
 
-// Disponibili ovunque
 app.set("db", db);
 app.set("missionFilterService", missionFilterService);
 app.set("aiProfileService", aiProfileService);
 
-// ----------------------------
-// 4) HEALTHCHECK (public + internal)
-// ----------------------------
-app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({
-    status: "ok",
-    env: process.env.NODE_ENV,
-    timestamp: new Date().toISOString(),
-  });
+// ---------------------
+// MIDDLEWARE GLOBALI
+// ---------------------
+app.use(cors());
+app.use(express.json());
+app.use(morgan("dev"));
+
+// ---------------------
+// HEALTHCHECK
+// ---------------------
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok", env: process.env.NODE_ENV });
 });
 
-// Per Railway
-app.get("/health", (_req: Request, res: Response) => {
-  res.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-  });
-});
+// ---------------------
+// ROUTES (ORDINE IMPORTANTE!)
+// ---------------------
 
-// ----------------------------
-// 5) API ROUTES
-// ----------------------------
-
-// Tutte le missioni / AI / invii automatici
+// 🚀 MISSIONI → potrebbero usare auth dentro missionsRouter
 app.use("/api", missionsRouter);
 
-// NUOVA ROUTE DASHBOARD
+// 🚀 DASHBOARD → SEMPRE PUBBLICA → niente authMiddleware
 app.use("/api/user", userRouter);
 
-// ----------------------------
-// 6) 404 HANDLER
-// ----------------------------
-app.use((req: Request, res: Response) => {
-  return res.status(404).json({
+// ---------------------
+// 404
+// ---------------------
+app.use((req, res) => {
+  res.status(404).json({
     error: "Endpoint non trovato",
     path: req.originalUrl,
   });
 });
 
-// ----------------------------
-// 7) GLOBAL ERROR HANDLER
-// ----------------------------
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+// ---------------------
+// ERROR HANDLER
+// ---------------------
+app.use((err, _req, res, _next) => {
   console.error("Errore non gestito:", err);
 
-  const status = err.statusCode || err.status || 500;
-  const message =
-    err.message || "Errore interno del server. Riprova più tardi.";
+  const status = err.statusCode || 500;
+  const message = err.message || "Errore interno del server";
 
-  return res.status(status).json({
-    error: message,
-  });
+  res.status(status).json({ error: message });
 });
 
-// ----------------------------
-// 8) AVVIO SERVER
-// ----------------------------
+// ---------------------
+// SERVER
+// ---------------------
 app.listen(PORT, () => {
-  console.log(`🚀 Server avviato su http://localhost:${PORT}`);
+  console.log(`🚀 Server attivo su http://localhost:${PORT}`);
 });

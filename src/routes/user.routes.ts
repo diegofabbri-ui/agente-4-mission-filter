@@ -6,15 +6,14 @@ const userRouter = Router();
 /**
  * GET /api/user/dashboard
  *
- * Endpoint minimale per dare alla UI un riepilogo base.
- * Per ora espone valori fittizi (0), così la Dashboard React può funzionare
- * senza errori. In futuro possiamo collegare DB e logica reale.
+ * Questo endpoint fornisce un riepilogo base all'interfaccia.
+ * È volutamente pubblico (nessuna richiesta di token).
+ * In futuro, quando aggiungerai l’autenticazione reale,
+ * potrai trasformare il valore "demo-user" nel vero userId.
  */
-userRouter.get("/dashboard", async (req, res) => {
-  const userId = "demo-user";
-
-  res.json({
-    userId,
+userRouter.get("/dashboard", (_req, res) => {
+  res.status(200).json({
+    userId: "demo-user",
     summary: {
       totalEarnings: 0,
       missionsCompleted: 0,
