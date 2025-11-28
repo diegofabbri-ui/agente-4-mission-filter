@@ -6,30 +6,21 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Sempre Railway come fallback
-  const API_BASE =
-    import.meta.env.VITE_API_URL ??
+  // Forza SEMPRE Railway
+  const API_BASE = 
+    import.meta.env.VITE_API_URL || 
     "https://agente-4-mission-filter-production.up.railway.app";
 
   useEffect(() => {
     async function loadDashboard() {
       setLoading(true);
 
-      // Se in futuro aggiungerai autenticazione
-      const token = localStorage.getItem("accessToken");
-
       try {
-        const res = await fetch(`${API_BASE}/api/user/dashboard`, {
-          headers: token
-            ? {
-                Authorization: `Bearer ${token}`,
-              }
-            : {},
-        });
+        const res = await fetch(`${API_BASE}/api/user/dashboard`);
 
         if (!res.ok) {
           const errMsg = await res.json().catch(() => null);
-          setError(errMsg?.error ?? "Errore sconosciuto");
+          setError(errMsg?.error ?? `Errore HTTP ${res.status}`);
           setLoading(false);
           return;
         }
@@ -37,7 +28,7 @@ export default function Dashboard() {
         const json = await res.json();
         setData(json);
       } catch (err) {
-        setError("Impossibile contattare il server");
+        setError("Impossibile contattare il server Railway");
         setLoading(false);
       }
     }
