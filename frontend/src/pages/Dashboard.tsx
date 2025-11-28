@@ -6,41 +6,38 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // URL Railway backend
-  const API_BASE = import.meta.env.VITE_API_URL ?? "https://agente-4-mission-filter-production.up.railway.app";
+  // Sempre Railway come fallback
+  const API_BASE =
+    import.meta.env.VITE_API_URL ??
+    "https://agente-4-mission-filter-production.up.railway.app";
 
   useEffect(() => {
     async function loadDashboard() {
       setLoading(true);
 
-      // Leggi token
+      // Se in futuro aggiungerai autenticazione
       const token = localStorage.getItem("accessToken");
-
-      if (!token) {
-        setError("Token non presente – devi configurare il profilo prima.");
-        setLoading(false);
-        return;
-      }
 
       try {
         const res = await fetch(`${API_BASE}/api/user/dashboard`, {
-          headers: {
-            "Authorization": `Bearer ${token}`,
-          },
+          headers: token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {},
         });
 
         if (!res.ok) {
-          const errJson = await res.json().catch(() => null);
-          setError(errJson?.error ?? "Errore sconosciuto");
+          const errMsg = await res.json().catch(() => null);
+          setError(errMsg?.error ?? "Errore sconosciuto");
           setLoading(false);
           return;
         }
 
         const json = await res.json();
         setData(json);
-      } catch (err: any) {
-        setError("Errore di connessione al server");
-      } finally {
+      } catch (err) {
+        setError("Impossibile contattare il server");
         setLoading(false);
       }
     }
@@ -55,25 +52,22 @@ export default function Dashboard() {
   if (error) {
     return (
       <div className="p-6 text-red-400">
-        <p>Errore nel caricamento dashboard:</p>
-        <p className="font-bold">{error}</p>
+        <h2 className="font-bold mb-2">Errore Dashboard</h2>
+        <p>{error}</p>
       </div>
     );
   }
 
   return (
     <div className="p-6 text-white">
-      <h1 className="text-2xl font-bold mb-4">Dashboard</h1>
+      <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
 
-      <div className="bg-gray-800 rounded-lg p-4">
-        <p><strong>User:</strong> {data.userId}</p>
-
-        <div className="mt-4">
-          <p>💰 Entrate totali: {data.summary.totalEarnings}</p>
-          <p>📌 Missioni completate: {data.summary.missionsCompleted}</p>
-          <p>⚡ Missioni attive: {data.summary.activeMissions}</p>
-          <p>🔥 Giorni di streak: {data.summary.streakDays}</p>
-        </div>
+      <div className="bg-gray-800 p-6 rounded-xl space-y-4">
+        <p><strong>User ID:</strong> {data.userId}</p>
+        <p><strong>Entrate totali:</strong> {data.summary.totalEarnings}</p>
+        <p><strong>Missioni completate:</strong> {data.summary.missionsCompleted}</p>
+        <p><strong>Missioni attive:</strong> {data.summary.activeMissions}</p>
+        <p><strong>Giorni di streak:</strong> {data.summary.streakDays}</p>
       </div>
     </div>
   );
