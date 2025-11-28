@@ -2,22 +2,18 @@ import { useEffect, useState } from "react";
 
 export default function Dashboard() {
   const [msg, setMsg] = useState("Inizializzazione componente…");
-  const [urlUsed, setUrlUsed] = useState("");
   const [raw, setRaw] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // URL fisso Railway
   const API_BASE = "https://agente-4-mission-filter-production.up.railway.app";
   const ENDPOINT = `${API_BASE}/api/user/dashboard`;
 
-  // DEBUG immediato
-  console.log("🔥 Il componente Dashboard.tsx CORRETTO è stato caricato.");
-  console.log("👉 URL che useremo:", ENDPOINT);
+  console.log("🔥 Dashboard.tsx corretto caricato.");
+  console.log("👉 URL:", ENDPOINT);
 
   useEffect(() => {
     async function load() {
-      setUrlUsed(ENDPOINT);
       setMsg("Chiamata al backend in corso…");
 
       try {
@@ -33,7 +29,7 @@ export default function Dashboard() {
         }
 
         const text = await res.text();
-        console.log("✅ Risposta ricevuta:", text);
+        console.log("✅ Risposta:", text);
 
         setRaw(text);
       } catch (e: any) {
@@ -77,4 +73,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
 
