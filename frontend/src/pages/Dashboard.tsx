@@ -1,90 +1,71 @@
 import { useEffect, useState } from "react";
 
-interface DashboardResponse {
-  userId: string;
-  summary: {
-    totalEarnings: number;
-    missionsCompleted: number;
-    activeMissions: number;
-    streakDays: number;
-  };
-}
-
 export default function Dashboard() {
-  const [data, setData] = useState<DashboardResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [raw, setRaw] = useState("");
+  const [urlUsed, setUrlUsed] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // 🚀 FISSO: BACKEND Railway (funziona sempre, 0 problemi CORS)
+  // 👇 URL fisso Railway, impossibile sbagliare
   const API_BASE = "https://agente-4-mission-filter-production.up.railway.app";
+  const ENDPOINT = `${API_BASE}/api/user/dashboard`;
 
   useEffect(() => {
-    async function loadDashboard() {
-      setLoading(true);
-      setError(null);
+    async function load() {
+      setUrlUsed(ENDPOINT);
+      console.log("🔵 Dashboard calling:", ENDPOINT);
 
       try {
-        const res = await fetch(`${API_BASE}/api/user/dashboard`);
+        const res = await fetch(ENDPOINT);
 
         if (!res.ok) {
-          const errMsg = await res.json().catch(() => null);
-          setError(errMsg?.error ?? `Errore HTTP ${res.status}`);
+          const msg = await res.text();
+          console.error("❌ Dashboard error:", msg);
+          setError(`HTTP ${res.status}: ${msg}`);
           setLoading(false);
           return;
         }
 
-        const json = (await res.json()) as DashboardResponse;
-        setData(json);
-      } catch (err) {
-        console.error(err);
-        setError("Impossibile contattare il server Railway.");
+        const text = await res.text();
+        console.log("✅ Dashboard response:", text);
+
+        setRaw(text);
+      } catch (e: any) {
+        console.error("🔥 Dashboard exception:", e);
+        setError(e.message ?? "Errore sconosciuto");
       } finally {
         setLoading(false);
       }
     }
 
-    loadDashboard();
+    load();
   }, []);
 
-  if (loading) {
-    return <div className="p-6 text-white">Caricamento dashboard…</div>;
-  }
-
-  if (error || !data) {
+  if (loading) return <div className="text-white p-6">Caricamento…</div>;
+  if (error)
     return (
-      <div className="p-6 text-red-400">
-        <h2 className="font-bold mb-2">Errore Dashboard</h2>
+      <div className="text-red-400 p-6">
+        <h2 className="font-bold">Errore Dashboard</h2>
         <p>{error}</p>
+        <p className="mt-4 text-sm opacity-60">
+          URL usato: <br />
+          {urlUsed}
+        </p>
       </div>
     );
-  }
 
   return (
-    <div className="p-6 text-white">
-      <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
+    <div className="text-white p-6 space-y-6">
+      <h1 className="text-3xl font-bold">Dashboard</h1>
 
-      <div className="bg-gray-800 p-6 rounded-xl space-y-4 shadow-xl">
-        <p>
-          <strong>User ID:</strong> {data.userId}
-        </p>
+      <div className="bg-gray-800 rounded-xl p-6">
+        <p className="text-sm opacity-60 mb-2">URL chiamato:</p>
+        <p className="font-mono text-yellow-300">{urlUsed}</p>
 
-        <p>
-          <strong>Entrate totali:</strong>{" "}
-          {data.summary.totalEarnings.toLocaleString()}€
-        </p>
+        <hr className="my-4 opacity-30" />
 
-        <p>
-          <strong>Missioni completate:</strong>{" "}
-          {data.summary.missionsCompleted}
-        </p>
-
-        <p>
-          <strong>Missioni attive:</strong> {data.summary.activeMissions}
-        </p>
-
-        <p>
-          <strong>Giorni di streak:</strong> {data.summary.streakDays}
-        </p>
+        <p className="text-sm opacity-60 mb-2">Risposta raw ricevuta:</p>
+        <pre className="bg-black/30 p-4 rounded-lg">{raw}</pre>
       </div>
     </div>
   );
