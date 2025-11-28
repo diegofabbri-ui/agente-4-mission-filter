@@ -1,16 +1,15 @@
-// src/pages/ProfileSetup.tsx
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+// Backend Railway (stabile)
+const API_BASE_URL =
+  "https://agente-4-mission-filter-production.up.railway.app";
 
-function getAuthHeaders() {
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : undefined;
-}
-
+// ---------------------
+// SCHEMA PROFILO
+// ---------------------
 const profileSchema = z.object({
   fullName: z.string().min(1, "Inserisci il tuo nome").max(100),
   minHourlyRate: z.coerce
@@ -22,6 +21,9 @@ const profileSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
+// ---------------------
+// TIPO DASHBOARD
+// ---------------------
 interface DashboardSummary {
   totalEarnings: number;
   missionsCompleted: number;
@@ -34,11 +36,15 @@ interface DashboardResponse {
   summary: DashboardSummary;
 }
 
-export default function ProfileSetup() {
-  const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
-  const [loadingDashboard, setLoadingDashboard] = useState(false);
-  const [dashboardError, setDashboardError] = useState<string | null>(null);
+// ---------------------
 
+export default function ProfileSetup() {
+  // Stato dashboard
+  const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
+
+  // Stato form profilo
   const {
     register,
     handleSubmit,
@@ -52,57 +58,59 @@ export default function ProfileSetup() {
     },
   });
 
-  const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">(
-    "idle"
-  );
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "success" | "error"
+  >("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // ---------------------
+  // CARICAMENTO DASHBOARD
+  // ---------------------
   useEffect(() => {
-    const fetchDashboard = async () => {
+    async function loadDashboard() {
       setLoadingDashboard(true);
-      setDashboardError(null);
+
       try {
-        const res = await axios.get<DashboardResponse>(
-          `${API_BASE_URL}/api/user/dashboard`,
-          { headers: getAuthHeaders() }
-        );
-        setDashboard(res.data.summary);
-      } catch (err: any) {
-        if (err?.response?.status === 401) {
-          setDashboardError("Non sei autenticato.");
-        } else {
+        const res = await fetch(`${API_BASE_URL}/api/user/dashboard`);
+
+        if (!res.ok) {
           setDashboardError("Errore nel caricamento dashboard.");
+          setLoadingDashboard(false);
+          return;
         }
+
+        const data = (await res.json()) as DashboardResponse;
+        setDashboard(data.summary);
+      } catch (err) {
+        setDashboardError("Errore di connessione al server.");
       } finally {
         setLoadingDashboard(false);
       }
-    };
+    }
 
-    fetchDashboard();
+    loadDashboard();
   }, []);
 
+  // ---------------------
+  // SALVATAGGIO PROFILO
+  // ---------------------
   const onSubmit = async (values: ProfileFormValues) => {
     setSaveError(null);
     setSaveStatus("idle");
 
-    try {
+    try:
       const parsed = profileSchema.parse(values);
 
-      const raw = parsed.preferredCategories ?? "";
-      const preferredCategoriesArray =
-        typeof raw === "string" && raw.trim().length > 0
-          ? raw.split(",").map((s) => s.trim()).filter(Boolean)
-          : [];
+      const preferred = parsed.preferredCategories
+        ?.split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
 
-      await axios.patch(
-        `${API_BASE_URL}/api/user/profile`,
-        {
-          fullName: parsed.fullName,
-          minHourlyRate: parsed.minHourlyRate,
-          preferredCategories: preferredCategoriesArray,
-        },
-        { headers: getAuthHeaders() }
-      );
+      await axios.patch(`${API_BASE_URL}/api/user/profile`, {
+        fullName: parsed.fullName,
+        minHourlyRate: parsed.minHourlyRate,
+        preferredCategories: preferred,
+      });
 
       setSaveStatus("success");
     } catch (err: any) {
@@ -110,59 +118,65 @@ export default function ProfileSetup() {
         const fieldErrors = err.flatten().fieldErrors;
         for (const [key, messages] of Object.entries(fieldErrors)) {
           if (Array.isArray(messages) && messages.length > 0) {
-            setError(key as any, { type: "manual", message: messages[0] });
+            setError(key as any, {
+              type: "manual",
+              message: messages[0],
+            });
           }
         }
         setSaveStatus("error");
-        setSaveError("Ci sono errori nei dati inseriti.");
+        setSaveError("Errori nei dati inseriti.");
         return;
       }
 
       setSaveStatus("error");
-      setSaveError("Errore durante il salvataggio del profilo.");
+      setSaveError("Errore durante il salvataggio.");
     }
   };
 
+  // ---------------------
+  // UI
+  // ---------------------
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
+    <div className="max-w-5xl mx-auto space-y-8 p-6 text-white">
       <div className="flex flex-col md:flex-row gap-8">
         {/* LEFT */}
         <section className="flex-1 space-y-4">
-          <h1 className="text-2xl font-bold">Profilo utente</h1>
+          <h1 className="text-3xl font-bold">Profilo utente</h1>
 
           <form
             onSubmit={handleSubmit(onSubmit)}
-            className="mt-4 space-y-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100"
+            className="mt-4 space-y-4 bg-gray-900 border border-gray-700 p-6 rounded-xl"
           >
-            {/* Nome */}
+            {/* Nome completo */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="block text-sm opacity-70 mb-1">
                 Nome completo
               </label>
               <input
                 type="text"
                 {...register("fullName")}
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm"
               />
               {errors.fullName && (
-                <p className="text-xs text-red-600 mt-1">
+                <p className="text-red-400 text-xs mt-1">
                   {errors.fullName.message}
                 </p>
               )}
             </div>
 
-            {/* Rate */}
+            {/* Tariffa */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="block text-sm opacity-70 mb-1">
                 Tariffa minima (€)
               </label>
               <input
                 type="number"
                 {...register("minHourlyRate", { valueAsNumber: true })}
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm"
               />
               {errors.minHourlyRate && (
-                <p className="text-xs text-red-600 mt-1">
+                <p className="text-red-400 text-xs mt-1">
                   {errors.minHourlyRate.message}
                 </p>
               )}
@@ -170,47 +184,41 @@ export default function ProfileSetup() {
 
             {/* Categorie */}
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Categorie preferite
+              <label className="block text-sm opacity-70 mb-1">
+                Categorie preferite (separate da virgola)
               </label>
               <textarea
                 rows={3}
                 {...register("preferredCategories")}
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm"
               />
-              {errors.preferredCategories && (
-                <p className="text-xs text-red-600 mt-1">
-                  {errors.preferredCategories.message}
-                </p>
-              )}
             </div>
 
-            {saveError && (
-              <p className="text-sm text-red-600 mt-2">{saveError}</p>
-            )}
+            {/* Messaggi */}
+            {saveError && <p className="text-red-400">{saveError}</p>}
             {saveStatus === "success" && (
-              <p className="text-sm text-green-600 mt-2">
-                Profilo aggiornato con successo
-              </p>
+              <p className="text-green-400">Profilo salvato con successo!</p>
             )}
 
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="bg-black text-white px-4 py-2 rounded-md text-sm font-semibold"
+              className="bg-blue-600 px-4 py-2 rounded-md hover:bg-blue-700"
             >
               {isSubmitting ? "Salvataggio…" : "Salva profilo"}
             </button>
           </form>
         </section>
 
-        {/* RIGHT */}
+        {/* RIGHT - DASHBOARD */}
         <section className="w-full md:w-80 space-y-4">
-          <h2 className="text-sm font-semibold">Dashboard</h2>
+          <h2 className="text-xl font-bold">Pannello di controllo</h2>
 
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-sm">
-            {loadingDashboard && <p>Caricamento…</p>}
-            {dashboardError && <p className="text-red-600">{dashboardError}</p>}
+          <div className="bg-gray-900 border border-gray-700 p-6 rounded-xl text-sm space-y-3">
+            {loadingDashboard && <p>Caricamento dashboard…</p>}
+
+            {dashboardError && (
+              <p className="text-red-400">{dashboardError}</p>
+            )}
 
             {dashboard && (
               <div className="space-y-2">
@@ -223,7 +231,8 @@ export default function ProfileSetup() {
                   {dashboard.missionsCompleted}
                 </p>
                 <p>
-                  <strong>Missioni attive:</strong> {dashboard.activeMissions}
+                  <strong>Missioni attive:</strong>{" "}
+                  {dashboard.activeMissions}
                 </p>
                 <p>
                   <strong>Streak:</strong> {dashboard.streakDays} giorni
