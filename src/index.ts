@@ -1,85 +1,112 @@
 // src/index.ts
-import 'dotenv/config';
-import express, { Request, Response, NextFunction } from 'express';
-import morgan from 'morgan';
+import './instrument'; // inizializza Sentry il prima possibile
+
+import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
-
-import { missionsRouter } from './routes/missions.routes';
-import userRouter from './routes/user.routes';
-
+import morgan from 'morgan';
+import * as Sentry from '@sentry/node';
 import { db } from './infra/db';
-import { openai } from './infra/openai';
-import { MissionFilterService } from './services/mission-filter.service';
-import { UserAIProfileService } from './services/ai-profile.service';
+
+// Router esportati per nome
+import { missionsRouter } from './routes/missions.routes';
+import { paymentsRouter } from './routes/payments.routes';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// ---------- SERVIZI CORE ----------
-const missionFilterService = new MissionFilterService({
-  db,
-  openai,
-  logger: console,
-});
-
-const aiProfileService = new UserAIProfileService(db);
-
-// Renderli accessibili ai router
-app.set('db', db);
-app.set('missionFilterService', missionFilterService);
-app.set('aiProfileService', aiProfileService);
-
-// ---------- MIDDLEWARE GLOBALI ----------
+// --------------------- MIDDLEWARE BASE ------------------
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// ---------- HEALTHCHECK PUBBLICO (per Railway) ----------
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    env: process.env.NODE_ENV,
-    timestamp: new Date().toISOString(),
-  });
-});
+// --------------------- HEALTH CHECKS --------------------
 
-// ---------- HEALTHCHECK INTERNO ----------
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({
+// Handler riutilizzabile per /health e /api/health
+const basicHealthHandler = (_req: Request, res: Response) => {
+  res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
   });
+};
+
+app.get('/health', basicHealthHandler);
+app.get('/api/health', basicHealthHandler);
+
+// Health "deep" con check DB
+app.get('/health/deep', async (_req: Request, res: Response) => {
+  try {
+    const dbCheck = await db
+      .selectFrom('users')
+      .select('id')
+      .executeTakeFirst();
+
+    const allGood = dbCheck !== undefined;
+
+    res.status(allGood ? 200 : 503).json({
+      status: allGood ? 'healthy' : 'degraded',
+      checks: {
+        database: allGood ? 'up' : 'down',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    Sentry.captureException(error);
+    res.status(503).json({
+      status: 'unhealthy',
+      error: error?.message ?? 'Unknown error',
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
-// ---------- API ROUTES ----------
-app.use('/api/user', userRouter);
-app.use('/api', missionsRouter);
-
-// ---------- 404 HANDLER ----------
-app.use((req: Request, res: Response) => {
-  return res.status(404).json({
-    error: 'Endpoint non trovato',
-    path: req.originalUrl,
-  });
+// Liveness probe
+app.get('/health/live', (_req: Request, res: Response) => {
+  res.status(200).json({ status: 'alive' });
 });
 
-// ---------- ERROR HANDLER TIPATO ----------
+// Readiness probe
+app.get('/health/ready', async (_req: Request, res: Response) => {
+  try {
+    await db.selectFrom('users').select('id').executeTakeFirst();
+    res.status(200).json({ status: 'ready' });
+  } catch {
+    res.status(503).json({ status: 'not ready' });
+  }
+});
+
+// --------------------- API ROUTES -----------------------
+// Qui puoi avere il tuo middleware di auth, se esiste
+// es: app.use(authMiddleware);
+
+app.use('/api/missions', missionsRouter);
+app.use('/api/payments', paymentsRouter);
+
+// --------------------- ERROR HANDLER GLOBALE -----------
+// Centralizza gli errori reali e li manda a Sentry
 app.use(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  (err: any, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('Errore non gestito:', err);
+  (err: any, _req: Request, res: Response, next: NextFunction) => {
+    const eventId = Sentry.captureException(err);
 
-    const status = err.statusCode || err.status || 500;
-    const message =
-      err.message || 'Errore interno del server. Riprova più tardi.';
+    if (res.headersSent) {
+      return next(err);
+    }
 
-    return res.status(status).json({
-      error: message,
+    res.status(500).json({
+      error: 'Internal server error',
+      eventId,
     });
   },
 );
 
-// ---------- AVVIO SERVER ----------
-app.listen(PORT, () => {
-  console.log(`🚀 Server avviato su http://localhost:${PORT}`);
+// --------------------- 404 FINALE ----------------------
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not found' });
 });
+
+// --------------------- SERVER START ---------------------
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Backend listening on port ${port}`);
+});
+
+export default app;

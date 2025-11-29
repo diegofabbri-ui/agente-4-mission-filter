@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 export default function Landing() {
   return (
     <div className="space-y-12 py-8">
-
       {/* HERO */}
       <section className="text-center space-y-4">
         <p className="text-xs font-medium tracking-[0.2em] uppercase text-gray-500">
@@ -17,7 +16,7 @@ export default function Landing() {
 
         <p className="text-gray-600 max-w-2xl mx-auto text-sm md:text-base">
           Collega il tuo profilo, aggiungi le missioni che trovi online e lascia
-          che l’AI le analizzi per te: rischio, payout, tempo e crescita.  
+          che l’AI le analizzi per te: rischio, payout, tempo e crescita.
           Tutto in un unico cruscotto operativo pensato per non farti sprecare
           energie su lavori sbagliati.
         </p>
@@ -56,7 +55,7 @@ export default function Landing() {
               Configura il tuo profilo
             </h3>
             <p className="text-gray-500 text-sm">
-              Imposta la tariffa oraria minima e le categorie di lavoro.  
+              Imposta la tariffa oraria minima e le categorie di lavoro.
               L’AI usa questi dati per capire cosa ha senso proporre e cosa no.
             </p>
           </Link>
@@ -103,7 +102,6 @@ export default function Landing() {
           Cosa fa davvero per te
         </h2>
         <div className="grid md:grid-cols-3 gap-6">
-
           <div className="border rounded-xl p-6 hover:bg-gray-50 hover:shadow-md transition-all cursor-default flex flex-col gap-2">
             <h3 className="font-semibold">Filtro anti-spreco</h3>
             <p className="text-gray-500 text-sm">
@@ -127,10 +125,9 @@ export default function Landing() {
               affinare i punteggi alle tue vere preferenze.
             </p>
           </div>
-
         </div>
       </section>
-
     </div>
   );
 }
+

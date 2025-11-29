@@ -1,0 +1,473 @@
+STEP 16: Monitoring + Analytics (90 min) – Research Update 28 Novembre 2025
+Stato del Progetto: Dove Siamo
+Sei al GIORNO 3B della checklist, ultimo sprint prima del lancio ufficiale. Il backend è live su Railway, il frontend su Vercel. Ora devi renderli invisibili dal punto di vista dell'infrastruttura, cioè:
+
+Tracciare ogni errore che accade
+
+Capire come gli utenti interagiscono
+
+Sapere quando il database è in sofferenza
+
+Garantire che il servizio sia sempre disponibile
+
+🔴 1. SENTRY (ERROR TRACKING)
+Cosa fa (2025)
+Sentry è la black box di aerei della tua app: registra OGNI errore, con context completo, stack trace, ambiente, versione e commit che l'ha introdotto.
+
+Features 2025:
+
+✅ Real-time error capture – Gli errori arrivano istantaneamente
+
+✅ Smart grouping – Raggruppa errori simili per evitare noise
+
+✅ Release tracking – Vedi in quale versione è apparso il bug
+
+✅ Breadcrumbs – Traccia le azioni dell'utente prima dell'errore (percorso di pane)
+
+✅ Performance monitoring – Tracked transazioni lente
+
+✅ Source maps – Decodifica errori di JavaScript minificato
+
+✅ Integrations – Slack, Jira, PagerDuty, GitHub
+
+✅ Replay – Video del comportamento dell'utente prima del crash
+
+Setup per il tuo stack
+Backend (Node.js/Express su Railway):
+
+bash
+npm install @sentry/node @sentry/tracing
+Dentro src/index.ts (all'inizio):
+
+typescript
+import * as Sentry from "@sentry/node";
+import { nodeProfilingIntegration } from "@sentry/profiling-node";
+
+// Inizializza PRIMA di tutto
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  integrations: [
+    nodeProfilingIntegration(),
+    new Sentry.Integrations.Http({ tracing: true }),
+    new Sentry.Integrations.OnUncaughtException(),
+    new Sentry.Integrations.OnUnhandledRejection(),
+  ],
+  environment: process.env.NODE_ENV || "production",
+  release: process.env.RAILWAY_DEPLOYMENT_ID || "unknown",
+  tracesSampleRate: 1.0, // Cambia a 0.1 per production pesante
+  profilesSampleRate: 0.1, // 10% per non sovraccaricare
+});
+
+// Express middleware DOPO init
+app.use(Sentry.Handlers.requestHandler());
+app.use(Sentry.Handlers.tracingHandler());
+
+// ...tuo codice Express...
+
+// Error handler Sentry PRIMA del 404 handler
+app.use(Sentry.Handlers.errorHandler());
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+Frontend (React su Vercel):
+
+bash
+npm install @sentry/react @sentry/tracing
+In src/main.tsx (all'inizio):
+
+typescript
+import * as Sentry from "@sentry/react";
+
+Sentry.init({
+  dsn: import.meta.env.VITE_SENTRY_DSN,
+  environment: import.meta.env.MODE,
+  release: import.meta.env.VITE_BUILD_VERSION || "unknown",
+  tracesSampleRate: 1.0,
+  integrations: [
+    new Sentry.Replay({
+      maskAllText: true, // Privacy
+      blockAllMedia: true, // Privacy
+    }),
+  ],
+  replaySessionSampleRate: 0.1,
+  replayOnErrorSampleRate: 1.0, // Cattura replay SOLO per errori
+});
+
+const App = Sentry.withProfiler(AppComponent);
+Get Sentry DSN
+Vai https://sentry.io
+
+Sign up con GitHub
+
+New Project → Node.js
+
+Copia il DSN (tipo https://xxxxx@yyyyy.ingest.sentry.io/zzzzz)
+
+Aggiungi a .env:
+
+text
+SENTRY_DSN=https://xxxxx@yyyyy.ingest.sentry.io/zzzzz
+VITE_SENTRY_DSN=https://xxxxx@yyyyy.ingest.sentry.io/zzzzz
+Setup su Railway
+Nel dashboard Railway, nella sezione "Variables" del servizio backend:
+
+text
+SENTRY_DSN=https://xxxxx@yyyyy.ingest.sentry.io/zzzzz
+Cost (2025)
+Free tier: 5,000 error events/mese (più che sufficiente per MVP)
+
+Paid: $29/mese per 100K events
+
+📊 2. GA4 (GOOGLE ANALYTICS 4)
+Cosa fa (2025)
+GA4 è il "cuore analytics" del tuo business: capisce COME e QUANDO gli utenti usano l'app, da dove arrivano, cosa fanno, se convertono (accettano missioni), se tornano.
+
+Features 2025 (aggiornate):
+
+✅ Event-based model – Non più "sessioni", ma singoli eventi tracciati
+
+✅ Cross-device tracking – Capisce se lo stesso utente usa app da PC, mobile, tablet
+
+✅ Enhanced Measurement – Auto-traccia form submissions, video plays, file downloads (NEW 2025!)
+
+✅ Predictive Analytics – AI predice chi è probabile che abbandoni (churn prediction)
+
+✅ Conversion Paths – Visuale per capire come gli utenti arrivano alla conversione
+
+✅ BigQuery export – Esporta dati grezzi per analisi avanzate (free tier fino a certi limiti)
+
+✅ Google Signals – Arricchisce dati con demographics, interests, cross-device behavior
+
+✅ Real-time Dashboard – Vedi cosa succede ORA nella tua app
+
+Setup per il tuo stack
+Frontend (React su Vercel):
+
+bash
+npm install @react-ga/web
+In src/main.tsx:
+
+typescript
+import ReactGA from "@react-ga/web";
+
+// Inizializza GA4
+ReactGA.initialize(import.meta.env.VITE_GA4_ID);
+
+// Track page views (da fare dentro i componenti Route)
+ReactGA.pageview(window.location.pathname + window.location.search);
+
+// Track custom events
+ReactGA.event({
+  category: "Mission",
+  action: "accept_mission",
+  label: "Mission ID: 12345",
+  value: 100, // reward in EUR
+});
+Nell'app, per tracciare azioni specifiche:
+
+typescript
+// Quando utente accetta una missione
+const handleAcceptMission = (missionId: string, reward: number) => {
+  // ...logica...
+  
+  ReactGA.event({
+    category: "engagement",
+    action: "mission_accepted",
+    label: missionId,
+    value: Math.round(reward),
+  });
+};
+
+// Quando completa una missione
+const handleCompleteMission = (missionId: string) => {
+  ReactGA.event({
+    category: "conversion",
+    action: "mission_completed",
+    label: missionId,
+  });
+};
+
+// Quando utilizza il filtro AI
+const handleFilterAI = () => {
+  ReactGA.event({
+    category: "feature_usage",
+    action: "ai_filter_triggered",
+  });
+};
+
+// Quando accede alla dashboard
+const handleViewDashboard = (userLevel: string) => {
+  ReactGA.event({
+    category: "user_journey",
+    action: "view_dashboard",
+    label: `level_${userLevel}`,
+  });
+};
+Get GA4 ID
+Vai https://analytics.google.com
+
+Sign in con Google Account
+
+Crea nuovo Property → Web
+
+Setup → Installa il tag
+
+Copia il Measurement ID (tipo G-XXXXXXXXXX)
+
+Aggiungi a .env.local (frontend):
+
+text
+VITE_GA4_ID=G-XXXXXXXXXX
+Setup su Vercel
+Nel dashboard Vercel, nella sezione Environment Variables del progetto frontend:
+
+text
+VITE_GA4_ID=G-XXXXXXXXXX
+Custom Events da Tracciare
+Consiglio questi per il tuo prodotto:
+
+Event	Category	Descrizione
+profile_setup_complete	onboarding	Utente ha compilato il profilo iniziale
+first_mission_added	engagement	Primo missione aggiunta
+ai_filter_used	feature_usage	Ha usato il filtro W-MOON
+mission_accepted	conversion	Ha accettato una missione
+mission_completed	revenue	Ha completato una missione
+payment_premium_initiated	monetization	Ha iniziato checkout Premium
+payment_premium_complete	monetization	Ha completato pagamento Premium
+dashboard_viewed	retention	Ha visto la dashboard
+Cost (2025)
+Gratuito – Unlimited events, standard features
+
+GA4+360 (enterprise) – $150K+/anno (non serve a te)
+
+🗄️ 3. DATABASE MONITORING (Supabase PostgreSQL)
+Cosa fa
+Monitora performance, query lente, spazio disco, lock, cache hit rates del DB. Se il DB è in sofferenza, l'app muore.
+
+Tools Built-in in Supabase (2025)
+Supabase include nativamente monitoring, accedi via dashboard:
+
+Vai su https://supabase.com → Tuo Project
+
+Tab "Logs" → Vedi query logs real-time
+
+Tab "Monitoring" → Vedi:
+
+Database size
+
+CPU usage
+
+Memory usage
+
+Active connections
+
+Disk I/O
+
+Comando CLI per Deep Inspection
+Se sei locale o connesso via SSH, puoi usare Supabase CLI:
+
+bash
+# Installa Supabase CLI se non l'hai
+npm install -g supabase
+
+# Link al tuo progetto
+supabase link --project-ref [TUO_PROJECT_ID]
+
+# Ispeziona il database
+supabase inspect db help
+
+# Esempi di comandi utili:
+supabase inspect db bloat              # Spazio sprecato
+supabase inspect db cache-hit          # Hit rate cache (goal: >99%)
+supabase inspect db slow-queries       # Query che durano troppo
+supabase inspect db index-usage        # Indici usati/inutilizzati
+supabase inspect db table-record-count # Quanti record per tabella
+Query SQL Manuale (dentro Supabase SQL Editor)
+sql
+-- Top 10 query lente (richiede pg_stat_statements abilitato)
+SELECT 
+  query, 
+  calls, 
+  mean_exec_time,
+  max_exec_time,
+  rows
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+
+-- Cache hit rate (goal: >99%)
+SELECT 
+  sum(heap_blks_read) as heap_read, 
+  sum(heap_blks_hit) as heap_hit, 
+  sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)) as ratio
+FROM pg_statio_user_tables;
+
+-- Spazio usato per tabella
+SELECT 
+  schemaname, 
+  tablename, 
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+FROM pg_tables
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+
+-- Connessioni attive
+SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;
+Alert Consigliate
+Configura alert se:
+
+Database size > 80% quota (Supabase → Settings → Database)
+
+CPU > 80% per >5 min
+
+Connessioni > 90% della max
+
+Supabase ti manda email automatiche.
+
+Cost (2025)
+Free Tier Supabase: 500MB storage, illimitato per query
+
+Pro Tier: $25/mese per 8GB storage + dedicated compute
+
+✅ 4. HEALTH CHECKS
+Cosa fa
+Un endpoint semplice che dice "sì, il sistema è vivo e funziona". Serve per:
+
+Railway per fare zero-downtime deployments (aspetta che il nuovo container sia pronto prima di switchare)
+
+Uptime monitoring (Sentry, UptimeKuma, Pingdom – tool esterni che lo checkano ogni N minuti)
+
+Load balancer per capire dove routare il traffico
+
+Backend Health Check (Node.js su Railway)
+In src/index.ts, aggiungi:
+
+typescript
+// Semplice health check
+app.get("/health", (req, res) => {
+  res.status(200).json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+// Health check "profondo" con dipendenze
+app.get("/health/deep", async (req, res) => {
+  try {
+    // Check DB
+    const dbCheck = await db.selectFrom("users").select("id").executeTakeFirst();
+    
+    // Check OpenAI (ping leggero)
+    const openaiCheck = await openai.models.list(); // Molto leggero
+    
+    const allGood = dbCheck !== undefined;
+    
+    res.status(allGood ? 200 : 503).json({
+      status: allGood ? "healthy" : "degraded",
+      checks: {
+        database: dbCheck !== undefined ? "up" : "down",
+        openai: openaiCheck ? "up" : "down",
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: "unhealthy",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Liveness probe (Kubernetes-style)
+app.get("/health/live", (req, res) => {
+  res.status(200).json({ status: "alive" });
+});
+
+// Readiness probe (Kubernetes-style)
+app.get("/health/ready", async (req, res) => {
+  try {
+    await db.selectFrom("users").select("id").executeTakeFirst();
+    res.status(200).json({ status: "ready" });
+  } catch (e) {
+    res.status(503).json({ status: "not ready" });
+  }
+});
+Frontend Health Check (React su Vercel)
+In src/pages/Health.tsx (opzionale, per admin):
+
+typescript
+export const HealthPage: React.FC = () => {
+  const [health, setHealth] = useState(null);
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/health/deep`
+        );
+        const data = await res.json();
+        setHealth(data);
+      } catch (e) {
+        setHealth({ status: "error", error: e.message });
+      }
+    };
+
+    check();
+    const interval = setInterval(check, 30000); // Ogni 30 sec
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div>
+      <h1>System Health</h1>
+      <pre>{JSON.stringify(health, null, 2)}</pre>
+    </div>
+  );
+};
+Configurazione Railway
+Nel dashboard Railway:
+
+Vai su Settings del servizio backend
+
+Health Check → Input /health
+
+Railway aspetterà che questo endpoint ritorni 200 prima di dare traffico al nuovo container
+
+Uptime Monitoring Esterno
+Opzione 1: Sentry Crons (gratuito per Sentry customers)
+
+typescript
+// Backend
+import Sentry from "@sentry/node";
+
+const cronCheck = Sentry.captureCheckIn(
+  async () => {
+    const res = await fetch("https://your-backend.railway.app/health");
+    return res.ok;
+  },
+  "my-app-health",
+  { monitorSlug: "my-app-health" },
+);
+Opzione 2: Uptime Kuma (open-source, gratuito)
+
+Vai https://uptime.kuma.pet
+
+Add Monitor → HTTP(s)
+
+URL: https://agente-4-mission-filter.railway.app/health
+
+Interval: 5 min
+
+Ti manda notifiche se down
+
+📋 CHECKLIST STEP 16 (90 MIN)
+Task	Time	Done
+1. Setup Sentry Backend	20 min	☐
+2. Setup Sentry Frontend	15 min	☐
+3. Setup GA4 & Events	25 min	☐
+4. Test Database Monitoring	10 min	☐
+5. Implement Health Checks	20 min	☐
+TOTAL: 90 min ✓
