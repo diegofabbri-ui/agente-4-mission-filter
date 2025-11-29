@@ -1,8 +1,8 @@
 // src/services/mission-filter.service.ts
 
-import type { Kysely } from 'kysely';
-import OpenAI from 'openai';
-import crypto from 'crypto';
+import type { Kysely } from "kysely";
+import OpenAI from "openai";
+import crypto from "crypto";
 
 import type {
   FilteredMission,
@@ -10,16 +10,16 @@ import type {
   RawMissionInput,
   UserScoringContext,
   WMoonWeights,
-} from '../types/mission-filter.types';
+} from "../types/mission-filter.types";
 
-import { calculateWMoonScore, getDefaultWeights } from '../utils/scoring-functions';
-import { UserAIProfileService } from './ai-profile.service';
-import type { DB } from '../types/db';
+import { calculateWMoonScore, getDefaultWeights } from "../utils/scoring-functions";
+import { UserAIProfileService } from "./ai-profile.service";
+import type { DB } from "../types/db";
 
 // Helper: ISO string safe
 function toISO(d: Date | string | null | undefined): string {
   if (!d) return new Date().toISOString();
-  return new Date(d).toISOString();
+  return new Date(d as any).toISOString();
 }
 
 export class MissionFilterService {
@@ -36,39 +36,37 @@ export class MissionFilterService {
     this.aiProfileService = new UserAIProfileService(this.db);
   }
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // 🎯 Entry-point principale chiamato da /missions/:id/filter-ai
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   async filterMissionById(userId: string, missionId: string) {
     const mission = await this.db
-      .selectFrom('missions')
+      .selectFrom("missions")
       .selectAll()
-      .where('id', '=', missionId)
+      .where("id", "=", missionId)
       .executeTakeFirst();
 
     if (!mission) throw new Error(`Mission ${missionId} non trovata.`);
 
-    const deadlineDate =
-      mission.deadline !== null && mission.deadline !== undefined
-        ? new Date(mission.deadline)
-        : new Date();
+    // deadline è Timestamp | null → usiamo direttamente il Date oppure fallback now
+    const deadlineDate = mission.deadline ?? new Date();
 
     const raw: RawMissionInput = {
       id: mission.id,
       title: mission.title,
-      description: mission.description ?? '',
+      description: mission.description ?? "",
       rewardAmount: Number(mission.reward_amount ?? 0),
       estimatedHours: Number(mission.estimated_duration_hours ?? 1),
       deadline: deadlineDate,
-      sourceId: mission.source_url ?? 'unknown',
+      sourceId: mission.source_url ?? "unknown",
     };
 
     const resultList = await this.filterMissionsForUser(userId, [raw]);
     const result = resultList[0];
 
-    // mission_filters: factors_breakdown è JSONB/Record<string, number>
+    // mission_filters: factors_breakdown è JSONB
     await this.db
-      .insertInto('mission_filters')
+      .insertInto("mission_filters")
       .values({
         id: crypto.randomUUID(),
         mission_id: missionId,
@@ -79,24 +77,23 @@ export class MissionFilterService {
         calculated_at: toISO(new Date()),
       })
       .onConflict((oc) =>
-        oc.columns(['mission_id', 'user_id']).doUpdateSet({
+        oc.columns(["mission_id", "user_id"]).doUpdateSet({
           total_score: result.totalScore,
-          factors_breakdown: result.factors as unknown as Record<string, number>,
+          factors_breakdown:
+            result.factors as unknown as Record<string, number>,
           is_scam: result.isScam,
           calculated_at: toISO(new Date()),
         }),
       )
       .execute();
 
-    // ai_audit_log: snapshot_weights JSONB/Record<string, number> | null
+    // ai_audit_log
     await this.db
-      .insertInto('ai_audit_log')
+      .insertInto("ai_audit_log")
       .values({
-        id: crypto.randomUUID(),
         user_id: userId,
         mission_id: missionId,
-        created_at: toISO(new Date()),
-        decision_type: result.isScam ? 'SCAM_BLOCK' : 'HIGH_SCORE',
+        decision_type: result.isScam ? "SCAM_BLOCK" : "HIGH_SCORE",
         explanation: result.reasoning,
         snapshot_weights: result.factors as unknown as Record<string, number>,
       })
@@ -105,9 +102,9 @@ export class MissionFilterService {
     return result;
   }
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // 🌕 W-MOON full scoring engine
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   async filterMissionsForUser(
     userId: string,
     rawMissions: RawMissionInput[],
@@ -147,20 +144,20 @@ export class MissionFilterService {
     return results;
   }
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // 🧠 USER CONTEXT
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   private async buildUserContext(userId: string): Promise<UserScoringContext> {
     const [user, profile] = await Promise.all([
       this.db
-        .selectFrom('users')
+        .selectFrom("users")
         .selectAll()
-        .where('id', '=', userId)
+        .where("id", "=", userId)
         .executeTakeFirst(),
       this.db
-        .selectFrom('user_ai_profile')
+        .selectFrom("user_ai_profile")
         .selectAll()
-        .where('user_id', '=', userId)
+        .where("user_id", "=", userId)
         .executeTakeFirst(),
     ]);
 
@@ -177,7 +174,15 @@ export class MissionFilterService {
     const weights: WMoonWeights =
       (profile?.weights as WMoonWeights | null) ?? getDefaultWeights();
 
-    const lastActive = new Date(user.last_active_at);
+    const lastActive =
+      user.last_active_at != null
+        ? new Date(user.last_active_at as any)
+        : new Date();
+
+    const learningRate =
+      profile?.learning_rate != null
+        ? Number(profile.learning_rate as any)
+        : 0.05;
 
     return {
       userId,
@@ -191,23 +196,23 @@ export class MissionFilterService {
       failures: 0,
       trustMap: {},
       weights,
-      learningRate: profile?.learning_rate ?? 0.05,
+      learningRate,
     };
   }
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // 🔍 NLP NORMALIZATION
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   private async normalizeMissionWithNLP(
     raw: RawMissionInput,
   ): Promise<NormalizedMission> {
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: "gpt-3.5-turbo",
         temperature: 0.2,
         messages: [
           {
-            role: 'system',
+            role: "system",
             content: `Restituisci SOLO JSON con:
 {
   "category": "coding" | "writing" | "design" | "admin" | "other",
@@ -218,7 +223,7 @@ export class MissionFilterService {
 }`,
           },
           {
-            role: 'user',
+            role: "user",
             content: `
 Titolo: ${raw.title}
 Descrizione: ${raw.description}
@@ -229,7 +234,7 @@ Ore: ${raw.estimatedHours}
         ],
       });
 
-      const content = completion.choices[0].message?.content ?? '{}';
+      const content = completion.choices[0].message?.content ?? "{}";
       let parsed: any;
 
       try {
@@ -242,7 +247,7 @@ Ore: ${raw.estimatedHours}
         id: raw.id,
         title: raw.title,
         description: raw.description,
-        category: parsed.category ?? 'other',
+        category: parsed.category ?? "other",
         skills: Array.isArray(parsed.skills)
           ? parsed.skills.map((s: unknown) => String(s))
           : [],
@@ -255,13 +260,13 @@ Ore: ${raw.estimatedHours}
         sourceId: raw.sourceId,
       };
     } catch (err) {
-      this.logger.error('[NLP ERROR]', err);
+      this.logger.error("[NLP ERROR]", err);
 
       return {
         id: raw.id,
         title: raw.title,
         description: raw.description,
-        category: 'other',
+        category: "other",
         skills: [],
         rewardAmount: raw.rewardAmount,
         estimatedHours: raw.estimatedHours,
@@ -274,9 +279,9 @@ Ore: ${raw.estimatedHours}
     }
   }
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // 🧩 REASONING
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   private buildReasoning(
     mission: NormalizedMission,
     score: number,
@@ -284,15 +289,15 @@ Ore: ${raw.estimatedHours}
   ): string {
     const h: string[] = [];
 
-    if (wm.factors.x1_skillMatch >= 0.7) h.push('forte match skills');
+    if (wm.factors.x1_skillMatch >= 0.7) h.push("forte match skills");
     if (wm.factors.x2_timeEfficiency >= 0.7)
-      h.push('ottimo rapporto paga/tempo');
-    if (wm.factors.x5_growth >= 0.6) h.push('missione di crescita');
-    if (wm.factors.x7_urgency >= 0.7) h.push('alta urgenza');
+      h.push("ottimo rapporto paga/tempo");
+    if (wm.factors.x5_growth >= 0.6) h.push("missione di crescita");
+    if (wm.factors.x7_urgency >= 0.7) h.push("alta urgenza");
     if (wm.isScam) h.push(`possibile truffa: ${wm.scamReason}`);
 
     return `Score: ${score.toFixed(1)}/100 · ${
-      h.join(' • ') || 'missione equilibrata'
+      h.join(" • ") || "missione equilibrata"
     }`;
   }
 }

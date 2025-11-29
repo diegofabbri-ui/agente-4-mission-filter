@@ -1,11 +1,11 @@
 // src/services/ai-learning.service.ts
 
-import { Kysely, sql } from "kysely";
+import { Kysely } from "kysely";
 import { DB } from "../types/db";
 import {
   MissionOutcome,
   AccuracyMetrics,
-  computeAccuracyMetrics
+  computeAccuracyMetrics,
 } from "../utils/accuracy-metrics";
 
 export class AILearningService {
@@ -30,10 +30,8 @@ export class AILearningService {
         eb.ref("h.feedback_rating").as("rating"),
         eb.ref("h.action_timestamp").as("timestamp"),
       ])
-      .where((eb) => eb("h.user_id", "=", userId))
-      .where((eb) =>
-        eb("h.action_timestamp", ">=", since.toISOString())
-      )
+      .where("h.user_id", "=", userId)
+      .where("h.action_timestamp", ">=", since)
       .execute();
 
     return rows.map((r) => ({
@@ -50,20 +48,15 @@ export class AILearningService {
     const outcomes = await this.getOutcomesForUser(userId);
     const metrics = computeAccuracyMetrics(outcomes);
 
-    // Insert log → typed for ai_audit_log
+    // ai_audit_log: inseriamo solo i campi realmente richiesti dal tipo
     await this.db
       .insertInto("ai_audit_log")
       .values({
-        id: sql`gen_random_uuid()`,
-
-        // Required column
-        mission_id: sql`NULL`, // typed null for Supabase pg
-
         user_id: userId,
-        decision_type: "INFO", // enum-safe
+        mission_id: null,
+        decision_type: "INFO",
         explanation: JSON.stringify(metrics),
         snapshot_weights: null,
-        created_at: sql`NOW()`,
       })
       .execute();
 

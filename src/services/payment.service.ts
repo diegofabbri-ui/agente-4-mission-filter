@@ -1,15 +1,15 @@
 // src/services/payment.service.ts
 
-import crypto from 'crypto';
-import { Kysely, sql, SqlBool } from 'kysely';
+import crypto from "crypto";
+import { Kysely, sql, SqlBool } from "kysely";
 
-import type { DB } from '../types/db';
-import { StripeService } from './stripe.service';
+import type { DB } from "../types/db";
+import { StripeService } from "./stripe.service";
 import {
   computeCommission,
   type CommissionComputationInput,
   type CommissionComputationResult,
-} from '../utils/commission-tiers';
+} from "../utils/commission-tiers";
 
 export interface PaymentServiceDeps {
   stripeService?: StripeService;
@@ -24,7 +24,7 @@ export interface PaymentServiceDeps {
  */
 export class PaymentService {
   private stripeService: StripeService;
-  private logger: PaymentServiceDeps['logger'];
+  private logger: PaymentServiceDeps["logger"];
 
   constructor(deps: PaymentServiceDeps = {}) {
     this.stripeService = deps.stripeService ?? new StripeService();
@@ -43,21 +43,21 @@ export class PaymentService {
     isPremium = false,
   ): Promise<CommissionComputationResult> {
     if (amountEur <= 0) {
-      throw new Error('amountEur deve essere > 0');
+      throw new Error("amountEur deve essere > 0");
     }
 
-    // Somma degli earnings del mese corrente (volume mensile)
     const monthlyRows = await db
-      .selectFrom('earnings')
-      .select(['amount'])
-      .where('user_id', '=', userId)
+      .selectFrom("earnings")
+      .select(["amount"])
+      .where("user_id", "=", userId)
       .where(
         sql<SqlBool>`date_trunc('month', received_at) = date_trunc('month', ${referenceDate.toISOString()}::timestamptz)`,
       )
       .execute();
 
+    // amount è Numeric => string in lettura → lo accumuliamo con Number()
     const monthlyVolumeBefore = monthlyRows.reduce(
-      (acc: number, row: { amount: number }) => acc + Number(row.amount),
+      (acc: number, row) => acc + Number(row.amount),
       0,
     );
 
@@ -100,17 +100,17 @@ export class PaymentService {
     const earningId = crypto.randomUUID();
 
     await db
-      .insertInto('earnings')
+      .insertInto("earnings")
       .values({
         id: earningId,
         user_id: params.userId,
         mission_id: params.missionId,
         amount: commission.netAmount, // netto per dashboard utente
-        status: 'verified',
+        status: "verified",
       })
       .execute();
 
-    this.logger?.info?.('[PaymentService] Registered earning', {
+    this.logger?.info?.("[PaymentService] Registered earning", {
       earningId,
       userId: params.userId,
       missionId: params.missionId,
@@ -123,10 +123,6 @@ export class PaymentService {
     return { earningId, commission };
   }
 
-  /**
-   * Crea una Stripe Checkout Session per l’abbonamento Premium.
-   * Usa l’email dell’utente dalla tabella `users`.
-   */
   async createPremiumCheckoutSession(
     db: Kysely<DB>,
     userId: string,
@@ -134,9 +130,9 @@ export class PaymentService {
     cancelUrl: string,
   ) {
     const user = await db
-      .selectFrom('users')
-      .select(['email'])
-      .where('id', '=', userId)
+      .selectFrom("users")
+      .select(["email"])
+      .where("id", "=", userId)
       .executeTakeFirst();
 
     if (!user || !user.email) {
@@ -151,7 +147,7 @@ export class PaymentService {
       cancelUrl,
       metadata: {
         userId,
-        type: 'premium_subscription',
+        type: "premium_subscription",
       },
     });
 
