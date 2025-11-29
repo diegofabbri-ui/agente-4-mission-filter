@@ -1,62 +1,117 @@
-import { createContext, useContext, useState } from "react";
+// frontend/src/state/AuthContext.tsx
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
 import axios from "axios";
 
-const API_BASE = import.meta.env.VITE_API_URL; 
-// deve essere: https://agente-4-mission-filter-production.up.railway.app/api
+const API_BASE =
+  "https://agente-4-mission-filter-production.up.railway.app";
 
-interface AuthContextType {
-  token: string | null;
-  login: (data: { email: string; password: string }) => Promise<void>;
-  register: (data: { email: string; password: string; fullName: string }) => Promise<void>;
-  logout: () => void;
+// -------------------------------------------
+// TYPES
+// -------------------------------------------
+export interface User {
+  id: string;
+  email: string;
+  fullName: string | null;
 }
 
-const AuthContext = createContext<AuthContextType>(null as any);
+export interface AuthContextType {
+  user: User | null;
+  loading: boolean;
 
-export function AuthProvider({ children }: any) {
-  const [token, setToken] = useState<string | null>(
-    localStorage.getItem("token")
-  );
-
-  // --------------------------
-  // REGISTER
-  // --------------------------
-  async function registerUser(data: {
-    fullName: string;
+  login: (params: { email: string; password: string }) => Promise<void>;
+  register: (params: {
     email: string;
     password: string;
-  }) {
-    const res = await axios.post(`${API_BASE}/auth/register`, {
-      fullName: data.fullName,
-      email: data.email,
-      password: data.password,
+    fullName: string;
+  }) => Promise<void>;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+// -------------------------------------------
+// PROVIDER
+// -------------------------------------------
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // -------------------------------------------
+  // CHECK SESSION ALL'AVVIO
+  // -------------------------------------------
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await axios.get(`${API_BASE}/auth/me`, {
+          withCredentials: true,
+        });
+
+        if (res.data?.user) {
+          setUser(res.data.user);
+        }
+      } catch {
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
+  }, []);
+
+  // -------------------------------------------
+  // LOGIN
+  // -------------------------------------------
+  async function login(params: { email: string; password: string }) {
+    const res = await axios.post(`${API_BASE}/auth/login`, params, {
+      withCredentials: true,
     });
 
-    localStorage.setItem("token", res.data.token);
-    setToken(res.data.token);
+    setUser(res.data.user);
   }
 
-  // --------------------------
-  // LOGIN
-  // --------------------------
-  async function login(data: { email: string; password: string }) {
-    const res = await axios.post(`${API_BASE}/auth/login`, data);
+  // -------------------------------------------
+  // REGISTER
+  // -------------------------------------------
+  async function register(params: {
+    email: string;
+    password: string;
+    fullName: string;
+  }) {
+    const res = await axios.post(`${API_BASE}/auth/register`, params, {
+      withCredentials: true,
+    });
 
-    localStorage.setItem("token", res.data.token);
-    setToken(res.data.token);
+    setUser(res.data.user);
   }
 
-  function logout() {
-    localStorage.removeItem("token");
-    setToken(null);
+  // -------------------------------------------
+  // LOGOUT
+  // -------------------------------------------
+  async function logout() {
+    await axios.post(
+      `${API_BASE}/auth/logout`,
+      {},
+      {
+        withCredentials: true,
+      }
+    );
+    setUser(null);
   }
 
   return (
     <AuthContext.Provider
       value={{
-        token,
+        user,
+        loading,
         login,
-        register: registerUser,
+        register,
         logout,
       }}
     >
@@ -65,6 +120,13 @@ export function AuthProvider({ children }: any) {
   );
 }
 
+// -------------------------------------------
+// HOOK
+// -------------------------------------------
 export function useAuth() {
-  return useContext(AuthContext);
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth deve essere usato dentro <AuthProvider>");
+  }
+  return ctx;
 }
