@@ -1,14 +1,13 @@
+// src/pages/ProfileSetup.tsx
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 
 const API_BASE_URL =
-  "https://agente-4-mission-filter-production.up.railway.app";
+  import.meta.env.VITE_API_URL ??
+  "https://agente-4-mission-filter-production.up.railway.app/api";
 
-// ---------------------
-// SCHEMA PROFILO
-// ---------------------
 const profileSchema = z.object({
   fullName: z.string().min(1, "Inserisci il tuo nome").max(100),
   minHourlyRate: z.coerce
@@ -20,14 +19,11 @@ const profileSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
-// ---------------------
-// TIPO DASHBOARD
-// ---------------------
 interface DashboardSummary {
   totalEarnings: number;
   missionsCompleted: number;
-  activeMissions: number;
-  streakDays: number;
+  activeMissions?: number;
+  streakDays?: number;
 }
 
 interface DashboardResponse {
@@ -35,13 +31,19 @@ interface DashboardResponse {
   summary: DashboardSummary;
 }
 
+function getAuthHeaders() {
+  const token = localStorage.getItem("token");
+  if (!token) return null;
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 export default function ProfileSetup() {
-  // Stato dashboard
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
 
-  // Form profilo
   const {
     register,
     handleSubmit,
@@ -55,23 +57,35 @@ export default function ProfileSetup() {
     },
   });
 
-  const [saveStatus, setSaveStatus] = useState<
-    "idle" | "success" | "error"
-  >("idle");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">(
+    "idle"
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // ---------------------
-  // CARICA DASHBOARD
+  // CARICA DASHBOARD (PROFILO UTENTE)
   // ---------------------
   useEffect(() => {
     async function loadDashboard() {
       setLoadingDashboard(true);
+      setDashboardError(null);
+
+      const headers = getAuthHeaders();
+      if (!headers) {
+        setDashboardError("Devi effettuare l’accesso per vedere la dashboard.");
+        setLoadingDashboard(false);
+        return;
+      }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/api/user/dashboard`);
+        const res = await fetch(
+          `${API_BASE_URL}/missions/user/dashboard`,
+          { headers }
+        );
 
         if (!res.ok) {
-          setDashboardError("Errore nel caricamento della dashboard.");
+          const text = await res.text();
+          setDashboardError(`Errore ${res.status}: ${text}`);
           setLoadingDashboard(false);
           return;
         }
@@ -79,6 +93,7 @@ export default function ProfileSetup() {
         const data = (await res.json()) as DashboardResponse;
         setDashboard(data.summary);
       } catch (err) {
+        console.error(err);
         setDashboardError("Errore di connessione al server.");
       } finally {
         setLoadingDashboard(false);
@@ -95,6 +110,13 @@ export default function ProfileSetup() {
     setSaveError(null);
     setSaveStatus("idle");
 
+    const headers = getAuthHeaders();
+    if (!headers) {
+      setSaveStatus("error");
+      setSaveError("Devi essere loggato per salvare il profilo.");
+      return;
+    }
+
     try {
       const parsed = profileSchema.parse(values);
 
@@ -104,14 +126,20 @@ export default function ProfileSetup() {
           .map((v) => v.trim())
           .filter(Boolean) ?? [];
 
-      await axios.patch(`${API_BASE_URL}/api/user/profile`, {
-        fullName: parsed.fullName,
-        minHourlyRate: parsed.minHourlyRate,
-        preferredCategories: preferred,
-      });
+      await axios.patch(
+        `${API_BASE_URL}/missions/user/profile`,
+        {
+          fullName: parsed.fullName,
+          minHourlyRate: parsed.minHourlyRate,
+          preferredCategories: preferred,
+        },
+        { headers }
+      );
 
       setSaveStatus("success");
     } catch (err: any) {
+      console.error(err);
+
       if (err instanceof z.ZodError) {
         const fieldErrors = err.flatten().fieldErrors;
 
@@ -129,8 +157,16 @@ export default function ProfileSetup() {
         return;
       }
 
+      if (axios.isAxiosError(err)) {
+        setSaveError(
+          err.response?.data?.error ??
+            "Errore durante il salvataggio del profilo."
+        );
+      } else {
+        setSaveError("Errore durante il salvataggio del profilo.");
+      }
+
       setSaveStatus("error");
-      setSaveError("Errore durante il salvataggio del profilo.");
     }
   };
 
@@ -140,7 +176,7 @@ export default function ProfileSetup() {
   return (
     <div className="max-w-5xl mx-auto space-y-8 p-6 text-white">
       <div className="flex flex-col md:flex-row gap-8">
-        {/* LEFT */}
+        {/* LEFT: PROFILO */}
         <section className="flex-1 space-y-4">
           <h1 className="text-3xl font-bold">Profilo utente</h1>
 
@@ -194,10 +230,12 @@ export default function ProfileSetup() {
               />
             </div>
 
-            {/* Messaggi */}
+            {/* Messaggi stato salvataggio */}
             {saveError && <p className="text-red-400">{saveError}</p>}
             {saveStatus === "success" && (
-              <p className="text-green-400">Profilo salvato con successo!</p>
+              <p className="text-green-400">
+                Profilo salvato con successo! ✅
+              </p>
             )}
 
             <button
@@ -209,7 +247,7 @@ export default function ProfileSetup() {
           </form>
         </section>
 
-        {/* RIGHT - DASHBOARD */}
+        {/* RIGHT: DASHBOARD COMPATTA */}
         <section className="w-full md:w-80 space-y-4">
           <h2 className="text-xl font-bold">Pannello di controllo</h2>
 
@@ -232,10 +270,10 @@ export default function ProfileSetup() {
                 </p>
                 <p>
                   <strong>Missioni attive:</strong>{" "}
-                  {dashboard.activeMissions}
+                  {dashboard.activeMissions ?? 0}
                 </p>
                 <p>
-                  <strong>Streak:</strong> {dashboard.streakDays} giorni
+                  <strong>Streak:</strong> {dashboard.streakDays ?? 0} giorni
                 </p>
               </div>
             )}
