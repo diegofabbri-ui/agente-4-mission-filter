@@ -1,88 +1,64 @@
-// frontend/src/state/AuthContext.tsx
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
-import api from "../lib/apiClient";
+import { createContext, useContext, useState } from "react";
+import axios from "axios";
 
-type AuthUser = {
-  id: string;
-  email: string;
-  fullName?: string | null;
-};
+const API_BASE = import.meta.env.VITE_API_URL; 
+// deve essere: https://agente-4-mission-filter-production.up.railway.app/api
 
-type AuthContextValue = {
-  user: AuthUser | null;
+interface AuthContextType {
   token: string | null;
-  loading: boolean;
-  login: (payload: { email: string; password: string }) => Promise<void>;
-  register: (payload: {
+  login: (data: { email: string; password: string }) => Promise<void>;
+  register: (data: { email: string; password: string; fullName: string }) => Promise<void>;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextType>(null as any);
+
+export function AuthProvider({ children }: any) {
+  const [token, setToken] = useState<string | null>(
+    localStorage.getItem("token")
+  );
+
+  // --------------------------
+  // REGISTER
+  // --------------------------
+  async function registerUser(data: {
+    fullName: string;
     email: string;
     password: string;
-    fullName?: string;
-  }) => Promise<void>;
-  logout: () => void;
-};
+  }) {
+    const res = await axios.post(`${API_BASE}/auth/register`, {
+      fullName: data.fullName,
+      email: data.email,
+      password: data.password,
+    });
 
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+    localStorage.setItem("token", res.data.token);
+    setToken(res.data.token);
+  }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // --------------------------
+  // LOGIN
+  // --------------------------
+  async function login(data: { email: string; password: string }) {
+    const res = await axios.post(`${API_BASE}/auth/login`, data);
 
-  // Re-idrata sessione da localStorage
-  useEffect(() => {
-    try {
-      const storedToken = localStorage.getItem("token");
-      const storedUser = localStorage.getItem("user");
-      if (storedToken) setToken(storedToken);
-      if (storedUser) setUser(JSON.parse(storedUser));
-    } catch {
-      // se esplode il JSON, si riparte puliti
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    localStorage.setItem("token", res.data.token);
+    setToken(res.data.token);
+  }
 
-  const persistSession = (user: AuthUser, token: string) => {
-    setUser(user);
-    setToken(token);
-    localStorage.setItem("token", token);
-    localStorage.setItem("user", JSON.stringify(user));
-  };
-
-  const login: AuthContextValue["login"] = async ({ email, password }) => {
-    const res = await api.post("/auth/login", { email, password });
-    const { user, token } = res.data as { user: AuthUser; token: string };
-    persistSession(user, token);
-  };
-
-  const register: AuthContextValue["register"] = async ({
-    email,
-    password,
-    fullName,
-  }) => {
-    const res = await api.post("/auth/register", { email, password, fullName });
-    const { user, token } = res.data as { user: AuthUser; token: string };
-    persistSession(user, token);
-  };
-
-  const logout = () => {
-    setUser(null);
-    setToken(null);
+  function logout() {
     localStorage.removeItem("token");
-    localStorage.removeItem("user");
-  };
+    setToken(null);
+  }
 
   return (
     <AuthContext.Provider
-      value={{ user, token, loading, login, register, logout }}
+      value={{
+        token,
+        login,
+        register: registerUser,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -90,9 +66,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth deve essere usato dentro <AuthProvider>");
-  }
-  return ctx;
+  return useContext(AuthContext);
 }
