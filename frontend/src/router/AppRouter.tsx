@@ -1,9 +1,16 @@
-// src/router/AppRouter.tsx
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+// frontend/src/router/AppRouter.tsx
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
+import type { ReactElement } from "react";
 
 import NavBar from "../components/NavBar";
 
-// Pagine utente (già esistenti)
+// Pagine utente
 import Landing from "../pages/Landing";
 import ProfileSetup from "../pages/ProfileSetup";
 import MissionAdder from "../pages/MissionAdder";
@@ -13,8 +20,39 @@ import MissionExecuting from "../pages/MissionExecuting";
 import MissionResult from "../pages/MissionResult";
 import MissionFeedback from "../pages/MissionFeedback";
 
-// Pagine admin (nuove)
+// Auth pages
+import Login from "../pages/auth/Login";
+import Register from "../pages/auth/Register";
+
+// Admin
 import AdminRoutes from "../pages/admin/AdminRoutes";
+import { useAuth } from "../state/AuthContext";
+
+// Guard per rotte protette
+function RequireAuth({ children }: { children: ReactElement }) {
+  const { token, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return (
+      <div className="text-gray-400 p-6">
+        Controllo sessione in corso…
+      </div>
+    );
+  }
+
+  if (!token) {
+    return (
+      <Navigate
+        to="/auth/login"
+        state={{ from: location }}
+        replace
+      />
+    );
+  }
+
+  return children;
+}
 
 export default function AppRouter() {
   return (
@@ -23,26 +61,89 @@ export default function AppRouter() {
 
       <div className="max-w-5xl mx-auto px-4 py-6">
         <Routes>
-
-          {/* --- Rotte Utente Principali --- */}
+          {/* Public */}
           <Route path="/" element={<Landing />} />
-          <Route path="/profile" element={<ProfileSetup />} />
-          <Route path="/add-mission" element={<MissionAdder />} />
-          <Route path="/ai" element={<AIRecommendations />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/auth/login" element={<Login />} />
+          <Route path="/auth/register" element={<Register />} />
 
-          {/* Rotte missioni */}
-          <Route path="/mission/:id/execute" element={<MissionExecuting />} />
-          <Route path="/mission/:id/result" element={<MissionResult />} />
-          <Route path="/mission/:id/feedback" element={<MissionFeedback />} />
+          {/* Utente loggato */}
+          <Route
+            path="/profile"
+            element={
+              <RequireAuth>
+                <ProfileSetup />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/add-mission"
+            element={
+              <RequireAuth>
+                <MissionAdder />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/ai"
+            element={
+              <RequireAuth>
+                <AIRecommendations />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireAuth>
+                <Dashboard />
+              </RequireAuth>
+            }
+          />
 
-          {/* --- Rotte Admin (NAMESPACE) --- */}
-          <Route path="/admin/*" element={<AdminRoutes />} />
+          {/* Mission flow */}
+          <Route
+            path="/mission/:id/execute"
+            element={
+              <RequireAuth>
+                <MissionExecuting />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/mission/:id/result"
+            element={
+              <RequireAuth>
+                <MissionResult />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/mission/:id/feedback"
+            element={
+              <RequireAuth>
+                <MissionFeedback />
+              </RequireAuth>
+            }
+          />
 
-          {/* --- 404 Fallback --- */}
+          {/* Admin (qualsiasi utente loggato, per ora) */}
+          <Route
+            path="/admin/*"
+            element={
+              <RequireAuth>
+                <AdminRoutes />
+              </RequireAuth>
+            }
+          />
+
+          {/* 404 */}
           <Route
             path="*"
-            element={<div className="text-red-500 p-6">Pagina non trovata</div>}
+            element={
+              <div className="text-red-500 p-6">
+                Pagina non trovata
+              </div>
+            }
           />
         </Routes>
       </div>

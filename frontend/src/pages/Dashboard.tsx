@@ -1,27 +1,14 @@
-// src/pages/Dashboard.tsx
+// frontend/src/pages/Dashboard.tsx
 import { useEffect, useState } from "react";
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL ??
-  "https://agente-4-mission-filter-production.up.railway.app/api";
-
-interface DashboardSummary {
-  totalEarnings: number;
-  missionsCompleted: number;
-  activeMissions?: number;
-  streakDays?: number;
-}
+import api from "../lib/apiClient";
 
 interface DashboardResponse {
   userId: string;
-  summary: DashboardSummary;
-}
-
-function getAuthHeaders() {
-  const token = localStorage.getItem("token");
-  if (!token) return null;
-  return {
-    Authorization: `Bearer ${token}`,
+  summary: {
+    totalEarnings: number;
+    missionsCompleted: number;
+    activeMissions: number;
+    streakDays: number;
   };
 }
 
@@ -32,34 +19,18 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      setLoading(true);
       setError(null);
-
-      const headers = getAuthHeaders();
-      if (!headers) {
-        setError("Devi effettuare l’accesso per vedere la dashboard.");
-        setLoading(false);
-        return;
-      }
-
+      setLoading(true);
       try {
-        const res = await fetch(
-          `${API_BASE_URL}/missions/user/dashboard`,
-          { headers }
-        );
-
-        if (!res.ok) {
-          const text = await res.text();
-          setError(`Errore ${res.status}: ${text}`);
-          setLoading(false);
-          return;
-        }
-
-        const json = (await res.json()) as DashboardResponse;
+        const res = await api.get("/user/dashboard");
+        const json = res.data as DashboardResponse;
         setData(json);
-      } catch (e) {
-        console.error(e);
-        setError("Impossibile raggiungere il server.");
+      } catch (e: any) {
+        if (e?.response?.status === 401) {
+          setError("Devi effettuare il login per vedere la dashboard.");
+        } else {
+          setError("Impossibile raggiungere il server.");
+        }
       } finally {
         setLoading(false);
       }
@@ -105,14 +76,14 @@ export default function Dashboard() {
             <div>
               <p className="opacity-60 text-sm">Missioni attive</p>
               <p className="text-2xl font-bold">
-                {data.summary.activeMissions ?? 0}
+                {data.summary.activeMissions}
               </p>
             </div>
 
             <div>
               <p className="opacity-60 text-sm">Streak (giorni)</p>
               <p className="text-2xl font-bold">
-                {data.summary.streakDays ?? 0}
+                {data.summary.streakDays}
               </p>
             </div>
           </div>
