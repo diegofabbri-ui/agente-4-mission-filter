@@ -1,16 +1,13 @@
-// frontend/src/router/AppRouter.tsx
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate,
-  useLocation,
-} from "react-router-dom";
-import type { ReactElement } from "react";
+// src/router/AppRouter.tsx
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import NavBar from "../components/NavBar";
 
-// Pagine utente
+// Auth pages
+import Register from "../pages/auth/Register";
+import Login from "../pages/auth/Login";
+
+// User pages
 import Landing from "../pages/Landing";
 import ProfileSetup from "../pages/ProfileSetup";
 import MissionAdder from "../pages/MissionAdder";
@@ -20,35 +17,17 @@ import MissionExecuting from "../pages/MissionExecuting";
 import MissionResult from "../pages/MissionResult";
 import MissionFeedback from "../pages/MissionFeedback";
 
-// Auth pages
-import Login from "../pages/auth/Login";
-import Register from "../pages/auth/Register";
-
 // Admin
 import AdminRoutes from "../pages/admin/AdminRoutes";
+
+// Auth
 import { useAuth } from "../state/AuthContext";
 
-// Guard per rotte protette
-function RequireAuth({ children }: { children: ReactElement }) {
-  const { token, loading } = useAuth();
-  const location = useLocation();
-
-  if (loading) {
-    return (
-      <div className="text-gray-400 p-6">
-        Controllo sessione in corso…
-      </div>
-    );
-  }
+function ProtectedRoute({ children }: { children: JSX.Element }) {
+  const { token } = useAuth(); // ✔ corretta: niente .loading
 
   if (!token) {
-    return (
-      <Navigate
-        to="/auth/login"
-        state={{ from: location }}
-        replace
-      />
-    );
+    return <Navigate to="/auth/login" replace />;
   }
 
   return children;
@@ -61,78 +40,83 @@ export default function AppRouter() {
 
       <div className="max-w-5xl mx-auto px-4 py-6">
         <Routes>
+
           {/* Public */}
           <Route path="/" element={<Landing />} />
-          <Route path="/auth/login" element={<Login />} />
           <Route path="/auth/register" element={<Register />} />
+          <Route path="/auth/login" element={<Login />} />
 
-          {/* Utente loggato */}
+          {/* Protected */}
           <Route
             path="/profile"
             element={
-              <RequireAuth>
+              <ProtectedRoute>
                 <ProfileSetup />
-              </RequireAuth>
+              </ProtectedRoute>
             }
           />
+
           <Route
             path="/add-mission"
             element={
-              <RequireAuth>
+              <ProtectedRoute>
                 <MissionAdder />
-              </RequireAuth>
+              </ProtectedRoute>
             }
           />
+
           <Route
             path="/ai"
             element={
-              <RequireAuth>
+              <ProtectedRoute>
                 <AIRecommendations />
-              </RequireAuth>
+              </ProtectedRoute>
             }
           />
+
           <Route
             path="/dashboard"
             element={
-              <RequireAuth>
+              <ProtectedRoute>
                 <Dashboard />
-              </RequireAuth>
+              </ProtectedRoute>
             }
           />
 
-          {/* Mission flow */}
           <Route
             path="/mission/:id/execute"
             element={
-              <RequireAuth>
+              <ProtectedRoute>
                 <MissionExecuting />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/mission/:id/result"
-            element={
-              <RequireAuth>
-                <MissionResult />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/mission/:id/feedback"
-            element={
-              <RequireAuth>
-                <MissionFeedback />
-              </RequireAuth>
+              </ProtectedRoute>
             }
           />
 
-          {/* Admin (qualsiasi utente loggato, per ora) */}
+          <Route
+            path="/mission/:id/result"
+            element={
+              <ProtectedRoute>
+                <MissionResult />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/mission/:id/feedback"
+            element={
+              <ProtectedRoute>
+                <MissionFeedback />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Admin */}
           <Route
             path="/admin/*"
             element={
-              <RequireAuth>
+              <ProtectedRoute>
                 <AdminRoutes />
-              </RequireAuth>
+              </ProtectedRoute>
             }
           />
 
