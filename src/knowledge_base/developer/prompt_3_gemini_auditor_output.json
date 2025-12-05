@@ -1,0 +1,42 @@
+{
+  "meta_comment": "THIS IS THE STRICT SCHEMA YOU MUST RETURN. NO MARKDOWN. ONLY VALID JSON.",
+  "status": "PASS | FAIL",
+  "total_score": 0,
+  "metrics_evaluation": {
+    "hyper_relevance": {
+      "score": 0,
+      "assessment": "Brief comment in Italian regarding specific mission alignment."
+    },
+    "tone_and_humanity": {
+      "score": 0,
+      "assessment": "Brief comment in Italian regarding professional seniority and lack of AI-slop."
+    },
+    "strategic_value": {
+      "score": 0,
+      "assessment": "Brief comment in Italian regarding ROI and solution selling."
+    },
+    "execution_readiness": {
+      "score": 0,
+      "assessment": "Brief comment in Italian regarding formatting and completeness."
+    }
+  },
+  "critique": [
+    {
+      "id": 1,
+      "severity": "CRITICAL | MAJOR | MINOR",
+      "category": "TONE | CONTENT | FORMAT | LOGIC",
+      "location": "e.g., 'Primo paragrafo', 'Sezione Codice'",
+      "error_description": "Specific explanation of the error in ITALIAN (e.g., 'Hai usato un tono troppo sottomesso e scusante').",
+      "required_fix": "Precise, imperative instruction for the Executor in ITALIAN (e.g., 'Rimuovi le scuse e inizia subito con la proposta di valore.')."
+    },
+    {
+      "id": 2,
+      "severity": "MAJOR",
+      "category": "CONTENT",
+      "location": "e.g., 'Call to Action'",
+      "error_description": "e.g., 'Manca una proposta di step successivo chiara.'",
+      "required_fix": "e.g., 'Aggiungi una richiesta di call di 10 minuti per martedì prossimo.'"
+    }
+  ],
+  "final_verdict": "A ruthless summary sentence in ITALIAN explaining the decision."
+}

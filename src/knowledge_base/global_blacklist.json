@@ -1,0 +1,121 @@
+{
+  "metadata": {
+    "file_name": "global_blacklist.json",
+    "version": "2.0.0",
+    "security_level": "PARANOID",
+    "description": "Database statico di pattern, domini e keyword da escludere tassativamente durante la fase di ricerca e analisi delle opportunità.",
+    "maintenance": "Richiede aggiornamento mensile basato sui nuovi vettori di attacco scam."
+  },
+  "banned_domains": [
+    {
+      "domain": "swagbucks.com",
+      "category": "BEERMONEY_LOW_ROI",
+      "reason": "Paga in punti/gift card. ROI orario inferiore a 2€."
+    },
+    {
+      "domain": "inboxdollars.com",
+      "category": "BEERMONEY_LOW_ROI",
+      "reason": "Modello survey predatorio. Perdita di tempo."
+    },
+    {
+      "domain": "surveyjunkie.com",
+      "category": "BEERMONEY_LOW_ROI",
+      "reason": "Sondaggi a basso costo. Non conforme al protocollo 'Millionaire'."
+    },
+    {
+      "domain": "microworkers.com",
+      "category": "CLICK_FARM",
+      "reason": "Task ripetitivi a centesimi. Rischio ban IP."
+    },
+    {
+      "domain": "picoworkers.com",
+      "category": "CLICK_FARM",
+      "reason": "Task di manipolazione SEO/Social. Non etico e basso ROI."
+    },
+    {
+      "domain": "fiverr.com",
+      "category": "RACE_TO_BOTTOM",
+      "reason": "Bannato in fase di discovery automatica per evitare la competizione sul prezzo al ribasso (eccezione: se l'utente ha skill ultra-specifiche, ma l'Agente ignora di default)."
+    },
+    {
+      "domain": "freelancer.com",
+      "category": "HIGH_SCAM_RATE",
+      "reason": "Piattaforma con tasso di fake jobs superiore al 40%. Rischio sicurezza alto."
+    },
+    {
+      "domain": "craigslist.org",
+      "category": "UNVERIFIED_SOURCE",
+      "reason": "Nessun sistema di escrow o verifica identità. Altissimo rischio frode."
+    },
+    {
+      "domain": "gumtree.com",
+      "category": "UNVERIFIED_SOURCE",
+      "reason": "Analogo a Craigslist. Non adatto a lavoro remoto professionale."
+    }
+  ],
+  "toxic_keywords": {
+    "financial_risk": [
+      "registration fee",
+      "entry fee",
+      "costo di iscrizione",
+      "purchase kit",
+      "start-up fee",
+      "investment required",
+      "bank details required before interview",
+      "send money",
+      "check processing",
+      "package processing",
+      "money mule"
+    ],
+    "communication_red_flags": [
+      "telegram only",
+      "contact via whatsapp",
+      "text me on signal",
+      "dm me for info"
+    ],
+    "unrealistic_promises": [
+      "make $5000",
+      "guaranteed income",
+      "get rich quick",
+      "no experience needed",
+      "easy money",
+      "passive income system",
+      "automatic trading bot"
+    ],
+    "scam_archetypes": [
+      "retyping",
+      "image to text",
+      "pdf to word",
+      "form filling job",
+      "ad posting job",
+      "copy paste job",
+      "mystery shopper"
+    ]
+  },
+  "suspicious_patterns": [
+    {
+      "pattern_id": "PAY_TO_WORK",
+      "description": "Qualsiasi richiesta di pagamento da parte del lavoratore per accedere al lavoro.",
+      "action": "HARD_BLOCK"
+    },
+    {
+      "pattern_id": "OFF_PLATFORM_LURING",
+      "description": "Tentativo immediato di spostare la conversazione fuori dalla piattaforma ufficiale (es. Upwork/LinkedIn) su app di messaggistica criptata.",
+      "action": "HARD_BLOCK"
+    },
+    {
+      "pattern_id": "CRYPTO_ONLY",
+      "description": "Offerte che pagano esclusivamente in token non listati o richiedono wallet connection.",
+      "action": "HARD_BLOCK"
+    },
+    {
+      "pattern_id": "NO_SKILL_HIGH_PAY",
+      "description": "Offerte che promettono tariffe orarie >50€ per lavori che non richiedono skill specifiche (es. Data Entry semplice).",
+      "action": "HARD_BLOCK"
+    }
+  ],
+  "allowed_exceptions": {
+    "telegram": "Accettabile SOLO se si tratta di community management per progetti Web3 verificati (es. Moderatore Discord/Telegram) e il contratto è chiaro.",
+    "crypto": "Accettabile SOLO se il pagamento è in stablecoin (USDC/USDT) o token major (ETH/BTC) e il task è tecnico (Dev/Audit)."
+  }
+}

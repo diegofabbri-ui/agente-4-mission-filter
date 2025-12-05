@@ -1,0 +1,60 @@
+{
+  "general_remote": [
+    "weworkremotely.com", "remoteok.com", "flexjobs.com", "workingnomads.com", 
+    "remotive.com", "jobspresso.co", "justremote.co", "pangian.com", "skipthedrive.com",
+    "nodesktop.com", "workew.com", "workster.co", "remotenomadjobs.com", "jobjetter.com",
+    "dynamitejobs.com", "virtualvocations.com", "europeremotely.eu", "citizenremote.com",
+    "jobgether.com", "himalayas.app", "authentic-jobs.com", "includelyremote.com"
+  ],
+  "tech_dev": [
+    "stackoverflow.com/jobs", "github.com/jobs", "gun.io", "toptal.com", 
+    "arc.dev", "dice.com", "rubyflow.com", "hnhiring.com", "landing.jobs",
+    "turing.com", "x-team.com", "hired.com", "andela.com", "codementor.io",
+    "codesignal.com", "auth0.com/careers", "unicornplatform.com", "remotely.io", "crew.co"
+  ],
+  "writing_content": [
+    "problogger.com/jobs", "mediabistro.com", "contently.net", "freelancewriting.com", 
+    "journalismjobs.com", "bestwriting.com", "contentwritingjobs.com", "superpath.co",
+    "elnacain.com", "writeraccess.com", "scripted.com", "textbroker.com", "contently.com",
+    "substack.com", "medium.com/partner-program", "ghostwriting.com", "copywritely.com",
+    "constant-content.com", "wordgigs.com", "writlancer.com", "mediavine.com", "adzooma.com"
+  ],
+  "design_creative": [
+    "behance.net/joblist", "dribbble.com/jobs", "99designs.com", "coroflot.com", 
+    "designjobs.board", "ifyoucouldjobs.com", "workingnotworking.com",
+    "twine.net", "authenticjobs.com", "designcrowd.com", "uxcel.com", 
+    "toptal.com/designers", "archdaily.com/jobs", "talent.io"
+  ],
+  "marketing_sales": [
+    "marketerhire.com", "growth.org/jobs", "exitfive.com/jobs", "salesgravy.com",
+    "wellfound.com", "nodesk.co", "builtin.com", "mayple.com", "growthmarketingpro.com",
+    "indiehackers.com", "producthunt.com", "startupgrind.com", "remoterocketship.com",
+    "hubstaff-talent.com", "growjobs.com", "salesjobs.org"
+  ],
+  "crypto_web3": [
+    "cryptojobslist.com", "web3.career", "crypto.jobs", "remote3.co", "pompcryptojobs.com", 
+    "deficrypto.jobs", "cryptojobs.com", "talently.io", "angel.co", "cryptocurrencyjobs.co",
+    "defi-jobs.com", "brickken.com", "blocktribe.com", "jobstash.xyz", "cryptowriter.co"
+  ],
+  "high_ticket_microtasks": [
+    "respondent.io", "userinterviews.com", "userlytics.com", "validately.com",
+    "userminutes.com", "contentsmart.com", "surveysparrow.com", "pollfish.com",
+    "preply.com", "instastudies.com", "peek-user-research.com", "lookback.io", "playbookux.com"
+  ],
+  "ai_training": [
+    "dataannotation.tech", "outlier.ai", "alignerr.com", "labelbox.com", "scale.com",
+    "remotasks.com", "appen.com", "clickworker.com", "lionbridge.ai", "alegion.com",
+    "humanloop.com", "surgehq.ai", "superb.ai", "stars-ai.com"
+  ],
+  "aggregators": [
+    "linkedin.com/jobs", "indeed.com", "glassdoor.com", "ziprecruiter.com", 
+    "google.com/search?ibp=htl;jobs", "wellfound.com", "simplyhired.com",
+    "careerbuilder.com", "pathrise.com", "reachmuse.io", "landing.ai", "lunchclub.com",
+    "pallet.com", "joinhandshake.com", "internships.com"
+  ],
+  "specialized_niches": [
+    "flowremote.io", "kolabtree.com", "upserve.com", "lawclerk.io", "voices.com",
+    "servicescape.com", "bark.com", "superprof.com", "tutorbox.com", "guru.com",
+    "peopleperhour.com", "virtualassistantjobs.net"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "meta_comment": "RETURN ONLY THIS JSON. NO MARKDOWN. NO CHATTER.",
+  "status": "PASS | FAIL",
+  "total_score": 0,
+  "manager_feedback": "A direct, brutal 1-sentence feedback from the Hiring Manager in ITALIAN (e.g., 'Troppo generico, voglio vedere codice specifico').",
+  "critique": [
+    {
+      "severity": "CRITICAL | MAJOR",
+      "error_description": "Specific error in ITALIAN.",
+      "required_fix": "Imperative instruction for the Executor in ITALIAN (e.g., 'Inserisci un diagramma ASCII del flusso dati')."
+    }
+  ]
+}

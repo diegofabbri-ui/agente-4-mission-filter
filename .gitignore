@@ -1,0 +1,12 @@
+﻿node_modules/
+dist/
+java/
+*.msi
+*.jar
+.env
+.DS_Store
+coverage/
+logs/
+*.log
+*.txt
+openai_key_test/
