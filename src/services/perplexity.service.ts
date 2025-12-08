@@ -4,6 +4,7 @@ import path from 'path';
 import { db } from '../infra/db';
 
 const PERPLEXITY_API_URL = 'https://api.perplexity.ai/chat/completions';
+const MAX_DAILY_SEARCHES = 3;
 
 // --- INTERFACCE DATI ---
 
@@ -31,6 +32,12 @@ interface RichOpportunity {
   experience_level: string; // "Junior", "Mid", "Senior"
   match_score: number; // 0-100
   analysis_notes: string; // Spiegazione strategica
+}
+
+// Interfaccia per gestire la quota giornaliera nel campo JSON 'weights'
+interface UserUsageStats {
+  last_search_date: string; // YYYY-MM-DD
+  daily_count: number;
 }
 
 export class PerplexityService {
@@ -76,11 +83,64 @@ export class PerplexityService {
     }
   }
 
+  // --- GESTIONE QUOTA GIORNALIERA (3 SEARCHES/DAY) ---
+  
+  private async checkAndIncrementQuota(userId: string): Promise<boolean> {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    // Recuperiamo il profilo esistente
+    const profile = await db.selectFrom('user_ai_profile')
+      .select(['weights', 'user_id'])
+      .where('user_id', '=', userId)
+      .executeTakeFirst();
+
+    if (!profile) return false;
+
+    // Parsiamo stats o inizializziamo
+    let stats: UserUsageStats = { last_search_date: today, daily_count: 0 };
+    
+    // Usiamo il campo 'weights' come storage temporaneo per le stats (per non migrare DB)
+    // Se weights contiene già dati di altro tipo, li preserviamo
+    let currentWeights: any = profile.weights || {};
+    
+    if (currentWeights._usage_stats) {
+      stats = currentWeights._usage_stats;
+    }
+
+    // Reset se è un nuovo giorno
+    if (stats.last_search_date !== today) {
+      stats.last_search_date = today;
+      stats.daily_count = 0;
+    }
+
+    // Controllo Limite
+    if (stats.daily_count >= MAX_DAILY_SEARCHES) {
+      console.warn(`⛔ [QUOTA] Utente ${userId} ha raggiunto il limite di ${MAX_DAILY_SEARCHES} ricerche.`);
+      return false;
+    }
+
+    // Incremento e Salvataggio
+    stats.daily_count++;
+    currentWeights._usage_stats = stats;
+
+    await db.updateTable('user_ai_profile')
+      .set({ weights: JSON.stringify(currentWeights) })
+      .where('user_id', '=', userId)
+      .execute();
+
+    console.log(`Hz [QUOTA] Ricerca ${stats.daily_count}/${MAX_DAILY_SEARCHES} autorizzata per oggi.`);
+    return true;
+  }
+
   // --- LOGICA DI SELEZIONE FONTI DINAMICA ---
-  // Seleziona i siti migliori in base agli interessi dell'utente
+  
   private getTargetSites(interests: string[], dreamRole: string, currentRole: string = ""): string[] {
-    // Partiamo sempre con gli aggregatori generalisti forti
-    let sites: string[] = [...(this.sourcesMap.aggregators || [])];
+    // Partiamo con gli aggregatori generalisti + GIG ECONOMY PLATFORMS (Second Income)
+    // Aggiungiamo manualmente i giganti del freelancing per coprire il caso "Multi-Account"
+    let sites: string[] = [
+      ...(this.sourcesMap.aggregators || []),
+      "upwork.com", "fiverr.com", "freelancer.com", "toptal.com", "peopleperhour.com"
+    ];
     
     const context = (interests.join(' ') + ' ' + dreamRole + ' ' + currentRole).toLowerCase();
 
@@ -100,7 +160,6 @@ export class PerplexityService {
     if (context.includes('marketing') || context.includes('sales') || context.includes('growth')) {
       sites.push(...(this.sourcesMap.marketing_sales || []));
     }
-    // Nuove categorie aggiunte
     if (context.includes('ai') || context.includes('training') || context.includes('annotation') || context.includes('data')) {
       sites.push(...(this.sourcesMap.ai_training || []));
     }
@@ -108,15 +167,13 @@ export class PerplexityService {
       sites.push(...(this.sourcesMap.high_ticket_microtasks || []));
     }
     
-    // Se la lista è ancora troppo generica, aggiungiamo i siti remote-only e async
-    if (sites.length <= 10) {
+    // Aggiungiamo siti remote-only se la lista è corta
+    if (sites.length <= 15) {
       sites.push(...(this.sourcesMap.general_remote || []));
       sites.push(...(this.sourcesMap.async_remote || []));
     }
 
-    // Limitiamo a 30 siti per query per non sovraccaricare il contesto AI
-    // Usiamo Set per rimuovere duplicati
-    return Array.from(new Set(sites)).slice(0, 30);
+    return Array.from(new Set(sites)).slice(0, 35); // Aumentato limite a 35 per includere piattaforme Gig
   }
 
   // --- MOTORE DI RICERCA API ---
@@ -131,7 +188,6 @@ export class PerplexityService {
           model: 'sonar-pro', // Modello di punta per ricerca complessa
           messages: [
             { role: 'system', content: systemPrompt },
-            // Iniettiamo la data corrente per forzare risultati recenti
             { role: 'user', content: `${userQuery} \n\n(Context: Current Date/Time is ${now}. Find LIVE listings only.)` }
           ],
           temperature: 0.1, // Bassa temperatura per JSON rigoroso
@@ -151,17 +207,23 @@ export class PerplexityService {
    * 🚀 GLOBAL HEADHUNTER SEARCH (Il metodo principale)
    */
   public async findGrowthOpportunities(userId: string, clientProfile: ClientCareerBlueprint) {
+    // 1. CONTROLLO QUOTA GIORNALIERA
+    const canProceed = await this.checkAndIncrementQuota(userId);
+    if (!canProceed) {
+      throw new Error(`Quota giornaliera raggiunta (${MAX_DAILY_SEARCHES} ricerche). Riprova domani.`);
+    }
+
     console.log(`🚀 [HUNTER] Analisi Profilo Avanzata per: ${clientProfile.dreamRole}`);
 
-    // 1. Selezione Fonti Intelligente
+    // 2. Selezione Fonti Intelligente (Inclusi Upwork/Fiverr)
     const targetSites = this.getTargetSites(clientProfile.interests, clientProfile.dreamRole, clientProfile.currentRole);
     const siteListString = targetSites.join(', ');
     
-    // 2. Caricamento Logiche dai File
+    // 3. Caricamento Logiche dai File
     const seoLogic = this.loadTextFile('dynamic_seo_logic.md');
     const systemInstruction = this.loadTextFile('system_headhunter_prompt.md');
 
-    // 3. Costruzione Prompt Dinamico (Headhunter Mode)
+    // 4. Costruzione Prompt Dinamico (Headhunter Mode + Side Hustle Logic)
     const systemPrompt = `
       ${systemInstruction}
       
@@ -179,11 +241,20 @@ export class PerplexityService {
       
       PRIORITY DOMAINS TO SCAN:
       ${siteListString}
+
+      SPECIAL INSTRUCTION FOR GIG PLATFORMS (Upwork, Fiverr, etc.):
+      Since direct listings might be behind a login wall, look for:
+      1. Recent public aggregators indexing these gigs.
+      2. "Client seeking freelancer" posts on Twitter/Reddit referencing these platforms.
+      3. Publicly indexed profile requests matching the candidate's skills.
+      
+      OBJECTIVE:
+      Find both full-time contracts AND high-value "Second Income" side hustles.
     `;
 
-    // 4. Query Master
+    // 5. Query Master
     const masterQuery = `
-      Execute a Deep Search for "${clientProfile.dreamRole}" jobs matching the candidate's profile.
+      Execute a Deep Search for "${clientProfile.dreamRole}" jobs AND "Freelance/Side-Hustle" opportunities matching the candidate's profile.
       Prioritize listings posted in the last 48 hours on the target domains.
       Ensure the payout meets the minimum requirement (or estimate it realistically based on role seniority).
       Return ONLY a valid JSON Array.
