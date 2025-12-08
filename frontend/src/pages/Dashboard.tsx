@@ -1,16 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import apiClient from '../lib/apiClient';
 import { 
   User, ChevronDown, ChevronUp, Play, 
   CheckCircle, XCircle, ArrowRight, Briefcase, 
   FileText, Zap, AlertCircle, Loader2, Sparkles,
-  Cpu, Activity, Lock
+  Cpu, Activity, Lock, Search, Radar
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-// --- CONFIGURAZIONE ---
-// Suggerimento: In produzione usa import.meta.env.VITE_API_BASE_URL
-const API_BASE_URL = "https://agente-4-mission-filter-production.up.railway.app";
 
 // --- TIPI ---
 interface Mission {
@@ -18,6 +14,7 @@ interface Mission {
   title: string;
   description: string;
   company_name: string;
+  source_url: string; // <--- FIX: Aggiunto questo campo mancante!
   reward_amount: number;
   estimated_duration_hours: number;
   status: string;
@@ -27,6 +24,7 @@ interface Mission {
   final_deliverable_json?: any;
   final_work_content?: string;
   client_requirements?: string;
+  platform?: string;
 }
 
 // --- COMPONENTI UI SENSORIALI ---
@@ -38,14 +36,17 @@ const GlassCard = ({ children, className = "" }: { children: React.ReactNode, cl
   </div>
 );
 
-const SectionHeader = ({ title, icon: Icon, colorClass = "text-indigo-400", bgClass = "bg-indigo-500/10" }: { title: string, icon: any, colorClass?: string, bgClass?: string }) => (
-  <div className="flex items-center gap-4 mb-8 group cursor-default">
-    <div className={`p-3 rounded-xl ${bgClass} border border-white/5 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-      <Icon className={`w-6 h-6 ${colorClass}`} />
+const SectionHeader = ({ title, icon: Icon, colorClass = "text-indigo-400", bgClass = "bg-indigo-500/10", rightElement }: { title: string, icon: any, colorClass?: string, bgClass?: string, rightElement?: React.ReactNode }) => (
+  <div className="flex items-center justify-between mb-8 group cursor-default">
+    <div className="flex items-center gap-4">
+        <div className={`p-3 rounded-xl ${bgClass} border border-white/5 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+        <Icon className={`w-6 h-6 ${colorClass}`} />
+        </div>
+        <h2 className="text-2xl font-bold text-white tracking-tight group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-gray-400 transition-all duration-300">
+        {title}
+        </h2>
     </div>
-    <h2 className="text-2xl font-bold text-white tracking-tight group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-gray-400 transition-all duration-300">
-      {title}
-    </h2>
+    {rightElement}
   </div>
 );
 
@@ -67,7 +68,8 @@ const ActionButton = ({ onClick, disabled, icon: Icon, variant = 'primary' }: { 
 
 export default function Dashboard() {
   const [missions, setMissions] = useState<Mission[]>([]);
-  const [loadingId, setLoadingId] = useState<string | null>(null); // Loading granulare
+  const [loadingId, setLoadingId] = useState<string | null>(null); // Loading granulare per sviluppo
+  const [isHunting, setIsHunting] = useState(false); // Loading per la caccia
   
   // Stati Layout 2
   const [selectedDevMissionId, setSelectedDevMissionId] = useState<string>("");
@@ -82,7 +84,7 @@ export default function Dashboard() {
 
   const fetchMissions = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/missions/my-missions?limit=50`);
+      const res = await apiClient.get('/missions/my-missions?limit=50');
       const parsedData = res.data.data.map((m: any) => ({
         ...m,
         final_deliverable_json: typeof m.final_deliverable_json === 'string' 
@@ -106,10 +108,33 @@ export default function Dashboard() {
   const rejectedMissions = missions.filter(m => m.status === 'rejected');
 
   // --- HANDLERS ---
+  
+  // 1. CACCIA MANUALE
+  const handleHunt = async () => {
+    if (isHunting) return;
+    setIsHunting(true);
+    try {
+        const res = await apiClient.post('/missions/hunt');
+        if (res.data.success) {
+            alert(`Caccia completata! Trovate ${res.data.data.length} nuove opportunità.`);
+            await fetchMissions();
+        }
+    } catch (e: any) {
+        const errorMsg = e.response?.data?.error || "Errore durante la ricerca.";
+        if (errorMsg.includes("Quota")) {
+            alert("⚠️ QUOTA RAGGIUNTA: Hai usato le tue 3 ricerche giornaliere. Riprova domani.");
+        } else {
+            alert(`Errore Caccia: ${errorMsg}`);
+        }
+    } finally {
+        setIsHunting(false);
+    }
+  };
+
   const handleDevelop = async (id: string) => {
     setLoadingId(id);
     try {
-      await axios.post(`${API_BASE_URL}/api/missions/${id}/develop`);
+      await apiClient.post(`/missions/${id}/develop`);
       await fetchMissions();
     } catch (e) { alert("Errore sviluppo."); } 
     finally { setLoadingId(null); }
@@ -118,7 +143,7 @@ export default function Dashboard() {
   const handleReject = async (id: string) => {
     if(!confirm("Confermi lo scarto della missione?")) return;
     try {
-      await axios.post(`${API_BASE_URL}/api/missions/${id}/reject`);
+      await apiClient.post(`/missions/${id}/reject`);
       await fetchMissions();
       setSelectedDevMissionId("");
     } catch (e) { alert("Errore rifiuto."); }
@@ -126,7 +151,7 @@ export default function Dashboard() {
 
   const handleAccept = async (id: string) => {
     try {
-      await axios.patch(`${API_BASE_URL}/api/missions/${id}/status`, { status: 'active' });
+      await apiClient.patch(`/missions/${id}/status`, { status: 'active' });
       await fetchMissions();
     } catch (e) { alert("Errore accettazione."); }
   };
@@ -135,7 +160,7 @@ export default function Dashboard() {
     if (!clientInput) return alert("Inserisci i requisiti del cliente!");
     setExecutingId(id);
     try {
-      await axios.post(`${API_BASE_URL}/api/missions/${id}/execute`, { clientRequirements: clientInput });
+      await apiClient.post(`/missions/${id}/execute`, { clientRequirements: clientInput });
       await fetchMissions();
       setClientInput("");
     } catch (e) { alert("Errore esecuzione."); } 
@@ -178,7 +203,22 @@ export default function Dashboard() {
 
         {/* --- STADIO 1: DISCOVERY --- */}
         <section>
-          <SectionHeader title="1. Radar Missioni" icon={Zap} colorClass="text-yellow-400" bgClass="bg-yellow-400/10" />
+          <SectionHeader 
+            title="1. Radar Missioni" 
+            icon={Radar} 
+            colorClass="text-yellow-400" 
+            bgClass="bg-yellow-400/10"
+            rightElement={
+                <button 
+                    onClick={handleHunt} 
+                    disabled={isHunting}
+                    className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-bold tracking-wide transition-all shadow-lg ${isHunting ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white hover:shadow-orange-500/20 active:scale-95'}`}
+                >
+                    {isHunting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                    {isHunting ? 'SCANNING...' : 'AVVIA CACCIA'}
+                </button>
+            }
+          />
           
           <div className="grid grid-cols-1 gap-4">
             {pendingMissions.length === 0 ? (
@@ -186,7 +226,8 @@ export default function Dashboard() {
                 <div className="w-16 h-16 rounded-full bg-gray-800/50 flex items-center justify-center mb-4 animate-pulse">
                   <Activity className="w-8 h-8 text-gray-600" />
                 </div>
-                <p className="text-gray-500 text-lg">Scansione in corso... Nessun segnale rilevato.</p>
+                <p className="text-gray-500 text-lg mb-2">Nessun segnale rilevato.</p>
+                <p className="text-gray-600 text-sm">Premi "Avvia Caccia" per scansionare il mercato (Upwork, Fiverr, etc).</p>
               </GlassCard>
             ) : (
               pendingMissions.map((mission, idx) => (
@@ -230,6 +271,7 @@ export default function Dashboard() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 tracking-wider">STRATEGY READY</span>
+                      {currentDevMission.platform && <span className="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-400 border border-gray-700">{currentDevMission.platform}</span>}
                     </div>
                     <h3 className="text-xl font-bold text-white leading-tight">{currentDevMission.title}</h3>
                     <p className="text-sm text-gray-400 mt-1 flex items-center gap-2">
@@ -420,6 +462,7 @@ function MissionDiscoveryCard({ mission, onDevelop, loading }: { mission: Missio
           <div className="flex items-center gap-3 mb-2">
              <h3 className="font-bold text-white text-lg group-hover:text-indigo-200 transition-colors">{mission.title}</h3>
              <span className="text-[10px] bg-gray-800 border border-gray-700 px-2 py-0.5 rounded text-gray-400 uppercase tracking-wide">{mission.company_name}</span>
+             {mission.platform && <span className="text-[10px] bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 px-2 py-0.5 rounded uppercase tracking-wide">{mission.platform}</span>}
           </div>
           <div className="text-sm text-gray-500 flex gap-6 font-mono">
              <span className="flex items-center gap-1"><span className="text-emerald-400">€{mission.reward_amount}</span>/hr</span>
@@ -455,6 +498,12 @@ function MissionDiscoveryCard({ mission, onDevelop, loading }: { mission: Missio
                 <div className="p-4 rounded-lg border border-gray-800/50">
                   <span className="block font-bold text-gray-500 text-xs uppercase tracking-wider mb-2">Source Brief</span>
                   <p className="text-gray-400 line-clamp-3 leading-relaxed italic">{mission.description}</p>
+                  {/* LINK DIRETTO ALLA FONTE */}
+                  <div className="mt-4 pt-4 border-t border-gray-700/50">
+                    <a href={mission.source_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300 text-xs font-bold uppercase tracking-wider transition-colors">
+                        Vai alla Fonte ({mission.platform || 'Direct'}) <ArrowRight className="w-3 h-3" />
+                    </a>
+                  </div>
                 </div>
              </div>
           </div>
