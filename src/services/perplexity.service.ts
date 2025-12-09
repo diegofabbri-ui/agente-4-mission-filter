@@ -11,7 +11,6 @@ export class PerplexityService {
     this.apiKey = process.env.PERPLEXITY_API_KEY || '';
     
     // Gestione path per ambiente Produzione (dist) vs Sviluppo (src)
-    // Questo è fondamentale affinché Railway trovi i file .md
     const isProd = process.env.NODE_ENV === 'production';
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
@@ -22,9 +21,13 @@ export class PerplexityService {
   private loadTextFile(filename: string): string {
     try {
       const filePath = path.join(this.kbPath, filename);
-      return fs.readFileSync(filePath, 'utf-8');
+      if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath, 'utf-8');
+      }
+      console.warn(`⚠️ Warning: File non trovato: ${filePath}`);
+      return "";
     } catch (e) {
-      console.warn(`⚠️ Warning: Impossibile caricare il file ${filename}. Uso fallback.`);
+      console.warn(`⚠️ Warning: Errore lettura file ${filename}.`);
       return ""; 
     }
   }
@@ -38,25 +41,23 @@ export class PerplexityService {
 
     // 1. SELEZIONE DEL MANUALE (PROMPT) E FILTRI BUDGET
     let systemInstruction = "";
-    let budgetContext = "CRITICAL: IGNORE jobs with 'Negotiable', 'DOE', or 'Unpaid'. ONLY return jobs with a specific numeric budget.";
+    let budgetContext = "CRITICAL: IGNORE jobs with 'Unpaid'. ONLY return jobs with a budget.";
 
     if (mode === 'weekly') {
-        // Carica il cacciatore settimanale
         systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
-        budgetContext += " TARGET: Fixed Price projects between $250 - $1200.";
+        budgetContext += " TARGET: Short-term projects, sprints, fixed price.";
     } else if (mode === 'monthly') {
-        // Carica il cacciatore mensile
         systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
-        budgetContext += " TARGET: Monthly Retainers > $2000/mo or Large Fixed Projects > $3000.";
+        budgetContext += " TARGET: Monthly Retainers, Long-term contracts.";
     } else {
-        // Default: Daily (Micro-task)
+        // Default: Daily
         systemInstruction = this.loadTextFile('system_headhunter_prompt.md'); 
-        budgetContext += ` TARGET: Hourly rate around ${clientProfile.minHourlyRate || 30} EUR/hr or Small Fixed Tasks.`;
+        budgetContext += ` TARGET: Hourly tasks, micro-projects.`;
     }
 
     // Fallback se il file prompt non viene letto
     if (!systemInstruction || systemInstruction.length < 10) {
-        systemInstruction = "You are an expert headhunter. Find freelance jobs suitable for the requested duration. Return strictly JSON.";
+        systemInstruction = "You are an expert headhunter. Find active freelance jobs suitable for the requested duration. Return strictly JSON array.";
     }
 
     // 2. COSTRUZIONE DELLA QUERY
@@ -70,7 +71,7 @@ export class PerplexityService {
 
     const searchMessages = [
       { role: 'system', content: systemInstruction },
-      { role: 'user', content: `${userContext}\n\nTASK: Find the best 5 active, REAL job listings on Upwork, Fiverr, LinkedIn, or Toptal matching the '${mode}' duration.\n\nMANDATORY: Return valid JSON. Ensure 'budget' is a number string (e.g. "500"). Include 'url' and a detailed 'description'.` }
+      { role: 'user', content: `${userContext}\n\nTASK: Find 5 REAL, ACTIVE job listings on Upwork, Fiverr, LinkedIn, or Toptal matching the '${mode}' duration.\n\nMANDATORY: Return valid JSON Array. Include 'url' and 'tasks_breakdown'.` }
     ];
 
     try {
@@ -80,7 +81,7 @@ export class PerplexityService {
         {
           model: 'sonar-pro', // Modello ottimizzato per la ricerca web
           messages: searchMessages,
-          temperature: 0.1 // Molto basso per evitare allucinazioni sui prezzi
+          temperature: 0.1 // Molto basso per evitare allucinazioni
         },
         {
           headers: {
@@ -97,7 +98,7 @@ export class PerplexityService {
 
     } catch (error: any) {
       console.error("❌ Errore Perplexity API:", error.response?.data || error.message);
-      throw new Error("Impossibile completare la ricerca su Perplexity.");
+      // Non lanciamo errore bloccante per non crashare il frontend, ma logghiamo
     }
   }
 
@@ -106,15 +107,28 @@ export class PerplexityService {
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
-      // Pulizia del JSON (rimuove backticks o testo extra generato dall'LLM)
-      const cleanJson = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
-      const startIndex = cleanJson.indexOf('[');
-      const endIndex = cleanJson.lastIndexOf(']');
+      // --- FIX ROBUSTEZZA JSON ---
+      // Rimuoviamo blocchi markdown
+      let cleanContent = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
       
-      if (startIndex === -1 || endIndex === -1) throw new Error("JSON non trovato nella risposta.");
+      // Estraiamo SOLO la parte tra le parentesi quadre [...]
+      const firstBracket = cleanContent.indexOf('[');
+      const lastBracket = cleanContent.lastIndexOf(']');
       
-      const jsonStr = cleanJson.substring(startIndex, endIndex + 1);
-      const missions = JSON.parse(jsonStr);
+      if (firstBracket === -1 || lastBracket === -1) {
+          console.error("⚠️ JSON Array non trovato nella risposta AI. Raw:", rawJson.substring(0, 100));
+          return;
+      }
+      
+      const jsonStr = cleanContent.substring(firstBracket, lastBracket + 1);
+      
+      let missions;
+      try {
+          missions = JSON.parse(jsonStr);
+      } catch (e) {
+          console.error("⚠️ Errore JSON.parse sul contenuto estratto.");
+          return;
+      }
 
       // Definizione Limiti Comandi in base al tipo (Pacing)
       let maxCommands = 20; // Default Daily
@@ -126,29 +140,28 @@ export class PerplexityService {
       // Inserimento nel Database
       for (const m of missions) {
         
-        // 1. Parsing e Validazione Prezzo
-        const reward = this.parseReward(m.budget || m.reward || m.price);
+        // 1. Parsing Prezzo
+        let reward = this.parseReward(m.payout_estimation || m.budget || m.reward || m.price);
         
-        // FILTRO: Se paga 0 o meno di 10$, SCARTA.
-        if (reward < 10) {
-            console.log(`Skipping low/zero budget job: ${m.title} (${reward})`);
-            continue;
-        }
+        // Se il reward è 0 (es. "Negotiable"), mettiamo un valore placeholder simbolico (10)
+        // per permettere all'utente di vederla e decidere.
+        if (reward <= 0) reward = 10;
 
         // 2. Controllo duplicati (basato su URL)
+        const finalUrl = m.source_url || m.url || "#";
         const exists = await db.selectFrom('missions')
             .select('id')
-            .where('source_url', '=', m.url || m.source_url)
+            .where('source_url', '=', finalUrl)
             .executeTakeFirst();
 
-        if (!exists) {
+        if (!exists && finalUrl !== "#") {
             await db.insertInto('missions')
               .values({
                 user_id: userId,
-                title: m.title || "Opportunità senza titolo",
+                title: m.title || "Nuova Opportunità",
                 description: m.description || m.summary || "Nessuna descrizione fornita.",
-                source_url: m.url || m.source_url || "https://upwork.com",
-                source: m.source || "Web",
+                source_url: finalUrl,
+                source: m.platform || m.source || "Web",
                 reward_amount: reward,
                 // Stima ore fissa in base al tipo se non fornita
                 estimated_duration_hours: m.hours || (type === 'weekly' ? 5 : (type === 'monthly' ? 40 : 1)),
@@ -160,12 +173,12 @@ export class PerplexityService {
                 command_count: 0,
                 conversation_history: JSON.stringify([]), // Inizializza memoria vuota
                 
-                // Metadati extra
+                // Metadati extra e grafico
                 platform: m.platform || "General",
-                company_name: m.company || "Confidenziale",
+                company_name: m.company_name || m.company || "Confidenziale",
                 match_score: m.match_score || 85,
-                analysis_notes: m.analysis_notes || `Opportunità rilevata in modalità ${type.toUpperCase()}.`,
-                raw_data: JSON.stringify(m)
+                analysis_notes: m.analysis_notes || `Caccia ${type} completata.`,
+                raw_data: JSON.stringify({ tasks_breakdown: m.tasks_breakdown || [] })
               })
               .execute();
             savedCount++;
@@ -174,8 +187,7 @@ export class PerplexityService {
       console.log(`✅ Salvate ${savedCount} nuove missioni (${type}).`);
 
     } catch (e) {
-      console.error("Errore Parsing/Salvataggio Missioni:", e);
-      // Non blocchiamo tutto se il parsing fallisce, ma lo logghiamo
+      console.error("❌ Errore Parsing/Salvataggio Missioni:", e);
     }
   }
 
@@ -200,7 +212,7 @@ export class PerplexityService {
         }
     }
 
-    // Gestione singola cifra "$500" o "500 USD"
+    // Gestione singola cifra "$500" o "500 USD" o "€500"
     const clean = rewardString.replace(/[^0-9.]/g, '');
     return parseFloat(clean) || 0;
   }
