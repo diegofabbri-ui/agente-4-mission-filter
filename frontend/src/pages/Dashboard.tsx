@@ -3,8 +3,7 @@ import apiClient from '../lib/apiClient';
 import { 
   User, ChevronDown, ChevronUp, Play, 
   CheckCircle, XCircle, ArrowRight, Briefcase, 
-  FileText, Zap, AlertCircle, Loader2, Sparkles,
-  Cpu, Activity, Lock, Search, Radar
+  Loader2, Sparkles, Cpu, Activity, Lock, Search, Radar, AlertTriangle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -14,7 +13,7 @@ interface Mission {
   title: string;
   description: string;
   company_name: string;
-  source_url: string; // <--- FIX: Aggiunto questo campo mancante!
+  source_url: string;
   reward_amount: number;
   estimated_duration_hours: number;
   status: string;
@@ -27,7 +26,7 @@ interface Mission {
   platform?: string;
 }
 
-// --- COMPONENTI UI SENSORIALI ---
+// --- COMPONENTI UI ---
 
 const GlassCard = ({ children, className = "" }: { children: React.ReactNode, className?: string }) => (
   <div className={`relative bg-[#0f1115]/60 backdrop-blur-xl border border-white/5 shadow-2xl rounded-2xl overflow-hidden transition-all duration-500 hover:shadow-indigo-500/10 hover:border-white/10 ${className}`}>
@@ -66,21 +65,38 @@ const ActionButton = ({ onClick, disabled, icon: Icon, variant = 'primary' }: { 
   );
 };
 
+// --- COMPONENTE NOTIFICA TOAST ---
+const NotificationToast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => (
+  <div className={`fixed top-24 right-6 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl backdrop-blur-md border animate-in slide-in-from-right duration-500 ${type === 'success' ? 'bg-emerald-900/90 border-emerald-500/30 text-emerald-100' : 'bg-red-900/90 border-red-500/30 text-red-100'}`}>
+    {type === 'success' ? <CheckCircle className="w-6 h-6 text-emerald-400" /> : <AlertTriangle className="w-6 h-6 text-red-400" />}
+    <div className="flex flex-col">
+        <span className="font-bold text-sm uppercase tracking-wide">{type === 'success' ? 'Successo' : 'Attenzione'}</span>
+        <span className="font-medium text-sm opacity-90">{message}</span>
+    </div>
+    <button onClick={onClose} className="ml-4 p-1 hover:bg-white/10 rounded-full transition-colors"><XCircle className="w-5 h-5" /></button>
+  </div>
+);
+
 export default function Dashboard() {
   const [missions, setMissions] = useState<Mission[]>([]);
-  const [loadingId, setLoadingId] = useState<string | null>(null); // Loading granulare per sviluppo
-  const [isHunting, setIsHunting] = useState(false); // Loading per la caccia
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [isHunting, setIsHunting] = useState(false);
   
-  // Stati Layout 2
+  // STATO NOTIFICA
+  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  
   const [selectedDevMissionId, setSelectedDevMissionId] = useState<string>("");
-  
-  // Stati Layout 3
   const [clientInput, setClientInput] = useState("");
   const [executingId, setExecutingId] = useState<string | null>(null);
-
-  // Effetto Mount (Animazione ingresso)
   const [mounted, setMounted] = useState(false);
+
   useEffect(() => setMounted(true), []);
+
+  const showNotification = (message: string, type: 'success' | 'error') => {
+    setNotification({ message, type });
+    // Se è un errore (tipo quota), lo lasciamo più a lungo (7 secondi)
+    setTimeout(() => setNotification(null), type === 'error' ? 7000 : 4000);
+  };
 
   const fetchMissions = async () => {
     try {
@@ -101,30 +117,29 @@ export default function Dashboard() {
 
   useEffect(() => { fetchMissions(); }, []);
 
-  // --- FILTRI ---
   const pendingMissions = missions.filter(m => m.status === 'pending');
   const developedMissions = missions.filter(m => m.status === 'developed');
   const activeMissions = missions.filter(m => ['active', 'completed'].includes(m.status));
-  const rejectedMissions = missions.filter(m => m.status === 'rejected');
 
   // --- HANDLERS ---
   
-  // 1. CACCIA MANUALE
   const handleHunt = async () => {
     if (isHunting) return;
     setIsHunting(true);
     try {
         const res = await apiClient.post('/missions/hunt');
         if (res.data.success) {
-            alert(`Caccia completata! Trovate ${res.data.data.length} nuove opportunità.`);
+            showNotification(`Caccia completata! Trovate ${res.data.data.length} nuove opportunità.`, 'success');
             await fetchMissions();
         }
     } catch (e: any) {
-        const errorMsg = e.response?.data?.error || "Errore durante la ricerca.";
+        const errorMsg = e.response?.data?.error || "Errore sconosciuto.";
+        
+        // GESTIONE SPECIFICA QUOTA 3 RICERCHE
         if (errorMsg.includes("Quota")) {
-            alert("⚠️ QUOTA RAGGIUNTA: Hai usato le tue 3 ricerche giornaliere. Riprova domani.");
+            showNotification("🛑 LIMITE RAGGIUNTO: Hai usato le tue 3 ricerche giornaliere. Torna domani!", 'error');
         } else {
-            alert(`Errore Caccia: ${errorMsg}`);
+            showNotification(`Errore Caccia: ${errorMsg}`, 'error');
         }
     } finally {
         setIsHunting(false);
@@ -136,8 +151,10 @@ export default function Dashboard() {
     try {
       await apiClient.post(`/missions/${id}/develop`);
       await fetchMissions();
-    } catch (e) { alert("Errore sviluppo."); } 
-    finally { setLoadingId(null); }
+      showNotification("Strategia generata con successo!", 'success');
+    } catch (e) { 
+      showNotification("Errore nello sviluppo. Controlla le API Key.", 'error');
+    } finally { setLoadingId(null); }
   };
 
   const handleReject = async (id: string) => {
@@ -146,24 +163,27 @@ export default function Dashboard() {
       await apiClient.post(`/missions/${id}/reject`);
       await fetchMissions();
       setSelectedDevMissionId("");
-    } catch (e) { alert("Errore rifiuto."); }
+      showNotification("Missione rimossa dal radar.", 'success');
+    } catch (e) { showNotification("Errore durante il rifiuto.", 'error'); }
   };
 
   const handleAccept = async (id: string) => {
     try {
       await apiClient.patch(`/missions/${id}/status`, { status: 'active' });
       await fetchMissions();
-    } catch (e) { alert("Errore accettazione."); }
+      showNotification("Missione accettata! Inizia l'esecuzione.", 'success');
+    } catch (e) { showNotification("Errore accettazione.", 'error'); }
   };
 
   const handleExecuteWork = async (id: string) => {
-    if (!clientInput) return alert("Inserisci i requisiti del cliente!");
+    if (!clientInput) return showNotification("Inserisci i requisiti del cliente prima di procedere!", 'error');
     setExecutingId(id);
     try {
       await apiClient.post(`/missions/${id}/execute`, { clientRequirements: clientInput });
       await fetchMissions();
       setClientInput("");
-    } catch (e) { alert("Errore esecuzione."); } 
+      showNotification("Lavoro completato dall'AI!", 'success');
+    } catch (e) { showNotification("Errore esecuzione.", 'error'); } 
     finally { setExecutingId(null); }
   };
 
@@ -172,6 +192,15 @@ export default function Dashboard() {
   return (
     <div className={`min-h-screen bg-[#050507] text-gray-100 font-sans pb-20 selection:bg-indigo-500/30 selection:text-white transition-opacity duration-1000 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
       
+      {/* NOTIFICA TOAST */}
+      {notification && (
+        <NotificationToast 
+          message={notification.message} 
+          type={notification.type} 
+          onClose={() => setNotification(null)} 
+        />
+      )}
+
       {/* BACKGROUND AMBIENTALE */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-900/10 rounded-full blur-[120px]" />
@@ -244,7 +273,6 @@ export default function Dashboard() {
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8">
             <SectionHeader title="2. Laboratorio Tattico" icon={Cpu} colorClass="text-indigo-400" bgClass="bg-indigo-500/10" />
             
-            {/* SELETTORE FUTURISTICO */}
             <div className="relative w-full md:w-96 z-20">
               <select 
                 value={selectedDevMissionId} 
@@ -266,7 +294,6 @@ export default function Dashboard() {
           <GlassCard className="min-h-[600px] flex flex-col">
             {currentDevMission ? (
               <>
-                {/* HEADSHEET */}
                 <div className="p-6 bg-gradient-to-r from-gray-900/80 to-gray-900/40 border-b border-white/5 flex justify-between items-start md:items-center gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
@@ -286,10 +313,8 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* WORKSPACE SCROLLABILE */}
                 <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar relative">
                   
-                  {/* BRIEF STRATEGICO */}
                   <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-900/20 to-purple-900/20 border border-indigo-500/20 p-6">
                     <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
                     <h4 className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-widest mb-3">
@@ -301,7 +326,6 @@ export default function Dashboard() {
                   </div>
 
                   <div className="grid lg:grid-cols-2 gap-8">
-                    {/* COLONNA A: COVER LETTER */}
                     <div className="space-y-3">
                       <Label text="Protocollo Candidatura" />
                       <div className="bg-black/40 backdrop-blur rounded-xl border border-white/5 p-5 font-mono text-xs text-gray-300 leading-relaxed whitespace-pre-wrap shadow-inner hover:border-white/10 transition-colors">
@@ -309,16 +333,14 @@ export default function Dashboard() {
                       </div>
                     </div>
                     
-                    {/* COLONNA B: BONUS ASSET */}
                     <div className="space-y-3">
-                      <Label text={`Asset Bonus: ${currentDevMission.final_deliverable_json?.bonus_material_title}`} />
+                      <Label text={`Asset Bonus: ${currentDevMission.final_deliverable_json?.bonus_material_title || 'N/A'}`} />
                       <div className="bg-emerald-900/5 backdrop-blur rounded-xl border border-emerald-500/10 p-5 font-mono text-xs text-emerald-100/90 leading-relaxed whitespace-pre-wrap shadow-inner hover:border-emerald-500/20 transition-colors">
                         {currentDevMission.final_deliverable_json?.bonus_material_content}
                       </div>
                     </div>
                   </div>
 
-                  {/* EXECUTION STEPS */}
                   <div className="bg-gray-900/50 rounded-2xl p-6 border border-white/5">
                      <Label text="Sequenza Operativa" />
                      <div className="mt-4 space-y-3">
@@ -377,8 +399,6 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex flex-col xl:flex-row items-stretch gap-6">
-                  
-                  {/* INPUT */}
                   <div className="flex-1 flex flex-col group">
                     <Label text="Input Cliente (Prompt)" />
                     <div className="relative flex-1">
@@ -393,7 +413,6 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* ACTION TRIGGER */}
                   <div className="flex flex-col items-center justify-center px-4 py-6 xl:py-0">
                     {executingId === mission.id ? (
                       <div className="relative">
@@ -415,7 +434,6 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  {/* OUTPUT */}
                   <div className="flex-1 flex flex-col">
                      <Label text="Final Deliverable (Output)" />
                      <div className={`flex-1 rounded-2xl p-6 relative overflow-hidden min-h-[300px] transition-all duration-500 ${
@@ -435,26 +453,21 @@ export default function Dashboard() {
                         )}
                      </div>
                   </div>
-
                 </div>
               </GlassCard>
             ))}
           </div>
         </section>
-
       </main>
     </div>
   );
 }
-
-// --- SOTTO-COMPONENTI SENSORIALI ---
 
 function MissionDiscoveryCard({ mission, onDevelop, loading }: { mission: Mission, onDevelop: (id: string) => void, loading: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
     <div className={`relative bg-[#13151a] border border-gray-800/50 rounded-xl transition-all duration-300 overflow-hidden group ${isOpen ? 'shadow-2xl ring-1 ring-indigo-500/30' : 'hover:border-gray-700'}`}>
-      {/* Barra laterale di stato */}
       <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-transparent via-indigo-500/0 to-transparent group-hover:via-indigo-500 transition-all duration-500" />
 
       <div className="p-5 flex items-center justify-between relative z-10">
@@ -486,7 +499,6 @@ function MissionDiscoveryCard({ mission, onDevelop, loading }: { mission: Missio
         </div>
       </div>
 
-      {/* Accordion Dettagli con animazione smooth */}
       <div className={`grid transition-all duration-500 ease-in-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
         <div className="overflow-hidden">
           <div className="px-5 pb-5 pt-0">
@@ -498,7 +510,6 @@ function MissionDiscoveryCard({ mission, onDevelop, loading }: { mission: Missio
                 <div className="p-4 rounded-lg border border-gray-800/50">
                   <span className="block font-bold text-gray-500 text-xs uppercase tracking-wider mb-2">Source Brief</span>
                   <p className="text-gray-400 line-clamp-3 leading-relaxed italic">{mission.description}</p>
-                  {/* LINK DIRETTO ALLA FONTE */}
                   <div className="mt-4 pt-4 border-t border-gray-700/50">
                     <a href={mission.source_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300 text-xs font-bold uppercase tracking-wider transition-colors">
                         Vai alla Fonte ({mission.platform || 'Direct'}) <ArrowRight className="w-3 h-3" />
