@@ -12,26 +12,16 @@ const developerService = new MissionDeveloperService();
 missionsRouter.post('/hunt', authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user.userId;
+    const profile = await db.selectFrom('user_ai_profile').selectAll().where('user_id', '=', userId).executeTakeFirst();
 
-    // Recupera il profilo dell'utente
-    const profile = await db.selectFrom('user_ai_profile')
-      .selectAll()
-      .where('user_id', '=', userId)
-      .executeTakeFirst();
+    if (!profile) return res.status(404).json({ error: "Profilo non trovato." });
 
-    if (!profile) {
-      return res.status(404).json({ error: "Profilo non trovato. Completa il setup." });
-    }
-
-    // Parsa il JSON del profilo
     const clientProfile = typeof profile.career_goal_json === 'string' 
       ? JSON.parse(profile.career_goal_json) 
       : profile.career_goal_json;
 
-    // Avvia la caccia (Questo metodo lancia un errore se la quota è piena)
     await perplexityService.findGrowthOpportunities(userId, clientProfile);
 
-    // Rispondi con successo e i dati trovati
     const newMissions = await db.selectFrom('missions')
         .selectAll()
         .where('user_id', '=', userId)
@@ -44,13 +34,8 @@ missionsRouter.post('/hunt', authMiddleware, async (req: any, res) => {
 
   } catch (error: any) {
     console.error("Errore Caccia:", error.message);
-    
-    // GESTIONE SPECIFICA ERRORE QUOTA
-    if (error.message.includes("Quota")) {
-        return res.status(403).json({ success: false, error: error.message });
-    }
-    
-    res.status(500).json({ error: "Errore interno durante la caccia." });
+    if (error.message.includes("Quota")) return res.status(403).json({ success: false, error: error.message });
+    res.status(500).json({ error: "Errore interno caccia." });
   }
 });
 
@@ -64,69 +49,70 @@ missionsRouter.get('/my-missions', authMiddleware, async (req: any, res) => {
       .orderBy('created_at', 'desc')
       .limit(limit)
       .execute();
-    
     res.json({ success: true, data: missions });
-  } catch (e) {
-    res.status(500).json({ error: "Errore recupero missioni" });
-  }
+  } catch (e) { res.status(500).json({ error: "Errore recupero missioni" }); }
 });
 
-// --- 3. SVILUPPO (DEVELOP) ---
+// --- 3. SVILUPPO STRATEGIA (DEVELOP) ---
 missionsRouter.post('/:id/develop', authMiddleware, async (req: any, res) => {
   try {
     const result = await developerService.developStrategy(req.params.id);
     res.json({ success: true, data: result });
-  } catch (e) {
-    res.status(500).json({ error: "Errore sviluppo strategia" });
+  } catch (e: any) {
+    console.error("Errore Sviluppo:", e);
+    res.status(500).json({ error: "Errore generazione strategia. Controlla OpenAI Key." });
   }
 });
 
-// --- 4. RIFIUTO (REJECT) ---
+// --- 4. RIFIUTO ---
 missionsRouter.post('/:id/reject', authMiddleware, async (req: any, res) => {
   try {
-    await db.updateTable('missions')
-      .set({ status: 'rejected' })
-      .where('id', '=', req.params.id)
-      .execute();
+    await db.updateTable('missions').set({ status: 'rejected' }).where('id', '=', req.params.id).execute();
     res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: "Errore rifiuto" });
-  }
+  } catch (e) { res.status(500).json({ error: "Errore rifiuto" }); }
 });
 
-// --- 5. ACCETTAZIONE (STATUS) ---
+// --- 5. ACCETTAZIONE ---
 missionsRouter.patch('/:id/status', authMiddleware, async (req: any, res) => {
   try {
-    const { status } = req.body;
-    await db.updateTable('missions')
-      .set({ status })
-      .where('id', '=', req.params.id)
-      .execute();
+    await db.updateTable('missions').set({ status: req.body.status }).where('id', '=', req.params.id).execute();
     res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: "Errore aggiornamento stato" });
-  }
+  } catch (e) { res.status(500).json({ error: "Errore status" }); }
 });
 
-// --- 6. ESECUZIONE (EXECUTE WORK) ---
+// --- 6. ESECUZIONE LAVORO REALE (EXECUTE WORK) ---
 missionsRouter.post('/:id/execute', authMiddleware, async (req: any, res) => {
   try {
-    const { clientRequirements } = req.body;
-    // Qui integreremo Gemini/OpenAI per fare il lavoro vero
-    // Per ora simuliamo un output
-    const output = `Lavoro eseguito per missione ${req.params.id}.\nInput Cliente: ${clientRequirements}\n\n[Output Generato dall'AI...]`;
+    const { clientRequirements, attachments } = req.body; // Riceve anche gli allegati
+    const userId = req.user.userId;
+
+    // Costruiamo il contesto completo per l'AI
+    let fullInstructions = clientRequirements;
     
+    // Se ci sono allegati, li aggiungiamo al prompt come contesto testuale
+    if (attachments && attachments.length > 0) {
+        fullInstructions += `\n\n--- ALLEGATI UTENTE ---\n`;
+        attachments.forEach((file: any) => {
+            fullInstructions += `\n[FILE: ${file.name}]\nContenuto/Contesto: ${file.content || '(File Binario/Immagine allegata)'}`;
+        });
+    }
+
+    // CHIAMA IL SERVIZIO AI VERO (OpenAI/Gemini)
+    const result = await developerService.executeFinalWork(req.params.id, userId, fullInstructions);
+
+    // Salva il risultato nel DB
     await db.updateTable('missions')
       .set({ 
         status: 'completed',
-        final_work_content: output,
-        client_requirements: clientRequirements
+        final_work_content: result,
+        client_requirements: fullInstructions
       })
       .where('id', '=', req.params.id)
       .execute();
 
-    res.json({ success: true, data: output });
-  } catch (e) {
-    res.status(500).json({ error: "Errore esecuzione lavoro" });
+    res.json({ success: true, data: result });
+  } catch (e: any) {
+    console.error("Errore Esecuzione:", e);
+    res.status(500).json({ error: "Errore esecuzione lavoro. Verificare OPENAI_API_KEY." });
   }
 });
