@@ -5,7 +5,7 @@ import path from 'path';
 import { db } from '../infra/db';
 
 // ==================================================================================
-// ⚙️ CONFIGURAZIONE MODELLI AI (AGGIORNATA)
+// ⚙️ CONFIGURAZIONE MODELLI AI
 // ==================================================================================
 const AI_CONFIG = {
   openai: {
@@ -62,29 +62,32 @@ export class MissionDeveloperService {
       : path.join(process.cwd(), 'src', 'knowledge_base');
   }
 
-  // Helper per caricare i prompt dai file .md
+  // Helper per caricare i prompt dai file .md con fallback robusto
   private loadPrompt(filename: string): string {
     try {
-      // Tenta diversi percorsi per robustezza
       let filePath = path.join(this.kbPath, filename);
+      // Tenta diversi percorsi per robustezza (root, developer subdir)
       if (!fs.existsSync(filePath)) {
-          // Fallback per struttura annidata (es. knowledge_base/developer/)
           filePath = path.join(this.kbPath, 'developer', filename);
       }
       if (!fs.existsSync(filePath)) {
-          // Fallback root
+          // Fallback root development
           filePath = path.join(process.cwd(), 'src', 'knowledge_base', filename);
+      }
+      if (!fs.existsSync(filePath)) {
+          // Fallback subdir development
+          filePath = path.join(process.cwd(), 'src', 'knowledge_base', 'developer', filename);
       }
       
       return fs.readFileSync(filePath, 'utf-8');
     } catch (e) {
       console.warn(`⚠️ Prompt file mancante: ${filename}`);
-      return ""; // Fallback gestito nel codice
+      return ""; 
     }
   }
 
   // ==================================================================================
-  // 1️⃣ LAYOUT 2: SVILUPPO STRATEGIA (One-Shot con Packaging)
+  // 1️⃣ LAYOUT 2: SVILUPPO STRATEGIA (ROUTING INTELLIGENTE)
   // ==================================================================================
   public async developStrategy(missionId: string): Promise<FinalMissionPackage> {
     console.log(`\n⚙️ [DEV] Sviluppo Strategia: ${missionId}`);
@@ -98,20 +101,40 @@ export class MissionDeveloperService {
         profileData = profile?.career_manifesto || {};
     }
 
+    const userSkills = JSON.stringify(profileData.keySkillsToAcquire || []);
+    const userAdvantages = JSON.stringify(profileData.unfairAdvantages || []);
+
+    // --- SELEZIONE FILE PROMPT BASATA SUL TIPO ---
+    let candFile = 'prompt_1_gpt_developer_init.md'; // Default Daily
+    let bonusFile = 'prompt_10_bonus_material_init.md'; // Default Daily
+
+    if (mission.type === 'weekly') {
+        candFile = 'prompt_1_weekly_candidacy.md';
+        bonusFile = 'prompt_10_weekly_bonus.md';
+        console.log("👉 Using WEEKLY Protocol");
+    } else if (mission.type === 'monthly') {
+        candFile = 'prompt_1_monthly_candidacy.md';
+        bonusFile = 'prompt_10_monthly_bonus.md';
+        console.log("👉 Using MONTHLY Protocol");
+    }
+
     // A. Generazione Candidatura
-    let promptCandidacy = this.loadPrompt('prompt_1_gpt_developer_init.md') || "Generate a professional freelance proposal.";
+    let promptCandidacy = this.loadPrompt(candFile) || "Generate professional proposal.";
     promptCandidacy = promptCandidacy
       .replace('[MISSION_TITLE]', mission.title)
       .replace('[MISSION_DESCRIPTION]', mission.description || 'N/A')
-      .replace('[USER_SKILLS]', JSON.stringify(profileData.keySkillsToAcquire || []));
+      .replace('[MISSION_URL]', mission.source_url || 'N/A')
+      .replace('[USER_SKILLS]', userSkills)
+      .replace('[USER_ADVANTAGES]', userAdvantages);
 
     const approvedCandidacy = await this.simpleGptCall(promptCandidacy);
 
     // B. Generazione Bonus Asset
-    let promptBonus = this.loadPrompt('prompt_10_bonus_material_init.md') || "Generate a bonus value asset.";
+    let promptBonus = this.loadPrompt(bonusFile) || "Generate bonus asset.";
     promptBonus = promptBonus
       .replace('[MISSION_TITLE]', mission.title)
-      .replace('[MISSION_DESCRIPTION]', mission.description || 'N/A');
+      .replace('[MISSION_DESCRIPTION]', mission.description || 'N/A')
+      .replace('[USER_SKILLS]', userSkills); // FIX: Ora passiamo le skill anche qui
 
     const approvedBonus = await this.simpleGptCall(promptBonus);
 
@@ -251,9 +274,9 @@ export class MissionDeveloperService {
           // A. GPT Genera (Esecutore)
           try {
               const res = await this.openai.chat.completions.create({
-                  model: AI_CONFIG.openai.model, // gpt-5.1-chat-latest
+                  model: AI_CONFIG.openai.model, 
                   messages: messagesForGPT as any,
-                  temperature: 0.3 // Preciso ma creativo
+                  temperature: 0.3 
               });
               currentDraft = res.choices[0].message.content || "Errore generazione.";
           } catch (e: any) {
@@ -301,7 +324,6 @@ export class MissionDeveloperService {
                   messagesForGPT.push({ role: "assistant", content: currentDraft });
                   messagesForGPT.push({ role: "system", content: `CRITICAL FEEDBACK FROM AUDITOR: "${auditJson.critique}". \n\nRE-WRITE the previous response to address this feedback perfectly.` });
               } else {
-                  // Fallback se il JSON di Gemini è rotto
                   approved = true; 
               }
 
@@ -344,9 +366,16 @@ export class MissionDeveloperService {
        });
        return JSON.parse(res.choices[0].message.content || "{}");
     } catch(e) {
+        // Fallback in caso di errore
         return { 
-            deliverable_content: candidacy, bonus_material_title: "Bonus", bonus_material_content: bonus, 
-            strategy_brief: "Packaging fallito.", execution_steps: [], estimated_impact: "N/A", is_immediate_task: true, bonus_file_name: "bonus.txt" 
+            deliverable_content: candidacy, 
+            bonus_material_title: "Bonus Asset", 
+            bonus_material_content: bonus, 
+            strategy_brief: "Packaging fallito.", 
+            execution_steps: ["1. Invia Candidatura", "2. Allega Bonus", "3. Segui il piano"], 
+            estimated_impact: "N/A", 
+            is_immediate_task: true, 
+            bonus_file_name: "bonus.txt" 
         };
     }
   }
