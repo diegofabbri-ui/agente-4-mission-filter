@@ -1,94 +1,132 @@
-import { Router, Response, NextFunction } from 'express';
-import { z } from 'zod';
-import crypto from 'crypto';
-import { authMiddleware, AuthRequest, generateAccessToken } from '../middleware/auth.middleware';
-
-// Importa i Servizi
-import { MissionDeveloperService } from '../services/mission-developer.service'; 
-import { MissionManagerService } from '../services/mission-manager.service'; // Ora esiste!
-import { PerplexityService } from '../services/perplexity.service'; 
+import { Router } from 'express';
+import { db } from '../infra/db';
+import { PerplexityService } from '../services/perplexity.service';
+import { MissionDeveloperService } from '../services/mission-developer.service';
+import { authMiddleware } from '../middleware/auth.middleware';
 
 export const missionsRouter = Router();
+const perplexityService = new PerplexityService();
+const developerService = new MissionDeveloperService();
 
-// --- UTILS ---
-function asyncHandler(fn: any) { return (req: any, res: any, next: any) => Promise.resolve(fn(req, res, next)).catch(next); }
-function validateBody(schema: any) { return (req: any, res: any, next: any) => { const r = schema.safeParse(req.body); if (!r.success) return res.status(400).json(r.error); req.bodyParsed = r.data; next(); }; }
-function validateQuery(schema: any) { return (req: any, res: any, next: any) => { const r = schema.safeParse(req.query); if (!r.success) return res.status(400).json(r.error); req.queryParsed = r.data; next(); }; }
+// --- 1. CACCIA (HUNT) ---
+missionsRouter.post('/hunt', authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user.userId;
 
-// --- SCHEMAS ---
-const addMissionSchema = z.object({ title: z.string(), description: z.string().optional(), rewardAmount: z.number().optional(), deadline: z.string().optional(), sourceUrl: z.string().optional() });
-const updateStatusSchema = z.object({ status: z.enum(['pending', 'developed', 'applied', 'interviewing', 'active', 'completed', 'rejected', 'archived']) });
-const addMessageSchema = z.object({ content: z.string().min(1) });
-const executeWorkSchema = z.object({ clientRequirements: z.string().min(10) });
+    // Recupera il profilo dell'utente
+    const profile = await db.selectFrom('user_ai_profile')
+      .selectAll()
+      .where('user_id', '=', userId)
+      .executeTakeFirst();
 
-// --- ROTTE PROTETTE ---
-missionsRouter.use(authMiddleware);
+    if (!profile) {
+      return res.status(404).json({ error: "Profilo non trovato. Completa il setup." });
+    }
 
-// 1. CACCIA (Hunter)
-missionsRouter.post('/hunt', asyncHandler(async (req: AuthRequest, res: any) => {
-    const db = req.app.get('db');
-    const userId = req.user!.userId;
-    const profile = await db.selectFrom('user_ai_profile').select('career_manifesto').where('user_id', '=', userId).executeTakeFirst();
-    if (!profile?.career_manifesto) return res.status(400).json({ error: "Profilo/Manifesto non compilato." });
+    // Parsa il JSON del profilo
+    const clientProfile = typeof profile.career_goal_json === 'string' 
+      ? JSON.parse(profile.career_goal_json) 
+      : profile.career_goal_json;
 
-    const hunter = new PerplexityService();
-    await hunter.findGrowthOpportunities(userId, profile.career_manifesto as any);
-    const newMissions = await db.selectFrom('missions').selectAll().where('user_id', '=', userId).orderBy('created_at', 'desc').limit(5).execute();
-    return res.json({ success: true, data: newMissions });
-}));
+    // Avvia la caccia (Questo metodo lancia un errore se la quota è piena)
+    await perplexityService.findGrowthOpportunities(userId, clientProfile);
 
-// 2. SVILUPPO CANDIDATURA
-missionsRouter.post('/:id/develop', asyncHandler(async (req: AuthRequest, res: any) => {
-    const developerService = new MissionDeveloperService(); 
-    const result = await developerService.executeMission(req.params.id, req.user!.userId);
-    return res.json({ success: true, data: result });
-}));
+    // Rispondi con successo e i dati trovati
+    const newMissions = await db.selectFrom('missions')
+        .selectAll()
+        .where('user_id', '=', userId)
+        .where('status', '=', 'pending')
+        .orderBy('created_at', 'desc')
+        .limit(10)
+        .execute();
 
-// 3. ESECUZIONE LAVORO FINALE
-missionsRouter.post('/:id/execute', validateBody(executeWorkSchema), asyncHandler(async (req: AuthRequest, res: any) => {
-    const db = req.app.get('db');
-    const { clientRequirements } = (req as any).bodyParsed;
+    res.json({ success: true, data: newMissions });
 
-    await db.updateTable('missions').set({ status: 'active', client_requirements: clientRequirements, updated_at: new Date().toISOString() as any }).where('id', '=', req.params.id).execute();
+  } catch (error: any) {
+    console.error("Errore Caccia:", error.message);
+    
+    // GESTIONE SPECIFICA ERRORE QUOTA
+    if (error.message.includes("Quota")) {
+        return res.status(403).json({ success: false, error: error.message });
+    }
+    
+    res.status(500).json({ error: "Errore interno durante la caccia." });
+  }
+});
 
-    const developerService = new MissionDeveloperService();
-    const finalWork = await developerService.executeFinalWork(req.params.id, req.user!.userId, clientRequirements);
-      
-    await db.updateTable('missions').set({ final_work_content: finalWork, status: 'completed', updated_at: new Date().toISOString() as any }).where('id', '=', req.params.id).execute();
-    return res.json({ success: true, status: 'completed', data: finalWork });
-}));
+// --- 2. LISTA MISSIONI ---
+missionsRouter.get('/my-missions', authMiddleware, async (req: any, res) => {
+  try {
+    const limit = Number(req.query.limit) || 20;
+    const missions = await db.selectFrom('missions')
+      .selectAll()
+      .where('user_id', '=', req.user.userId)
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .execute();
+    
+    res.json({ success: true, data: missions });
+  } catch (e) {
+    res.status(500).json({ error: "Errore recupero missioni" });
+  }
+});
 
-// 4. CRM (Chat & Stati)
-missionsRouter.get('/my-missions', asyncHandler(async (req: AuthRequest, res: any) => {
-    const db = req.app.get('db');
-    const items = await db.selectFrom('missions').selectAll().where('user_id', '=', req.user!.userId).orderBy('created_at', 'desc').limit(50).execute();
-    return res.json({ data: items });
-}));
+// --- 3. SVILUPPO (DEVELOP) ---
+missionsRouter.post('/:id/develop', authMiddleware, async (req: any, res) => {
+  try {
+    const result = await developerService.developStrategy(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (e) {
+    res.status(500).json({ error: "Errore sviluppo strategia" });
+  }
+});
 
-missionsRouter.patch('/:id/status', validateBody(updateStatusSchema), asyncHandler(async (req: AuthRequest, res: any) => {
-    const managerService = new MissionManagerService();
-    await managerService.updateStatus(req.params.id, req.user!.userId, (req as any).bodyParsed.status);
-    return res.json({ success: true });
-}));
+// --- 4. RIFIUTO (REJECT) ---
+missionsRouter.post('/:id/reject', authMiddleware, async (req: any, res) => {
+  try {
+    await db.updateTable('missions')
+      .set({ status: 'rejected' })
+      .where('id', '=', req.params.id)
+      .execute();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: "Errore rifiuto" });
+  }
+});
 
-missionsRouter.post('/:id/reject', asyncHandler(async (req: AuthRequest, res: any) => {
-    const managerService = new MissionManagerService();
-    await managerService.updateStatus(req.params.id, req.user!.userId, 'rejected');
-    return res.json({ success: true, status: 'rejected' });
-}));
+// --- 5. ACCETTAZIONE (STATUS) ---
+missionsRouter.patch('/:id/status', authMiddleware, async (req: any, res) => {
+  try {
+    const { status } = req.body;
+    await db.updateTable('missions')
+      .set({ status })
+      .where('id', '=', req.params.id)
+      .execute();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: "Errore aggiornamento stato" });
+  }
+});
 
-missionsRouter.get('/:id/thread', asyncHandler(async (req: AuthRequest, res: any) => {
-    const managerService = new MissionManagerService();
-    const thread = await managerService.getThreadHistory(req.params.id);
-    return res.json({ thread });
-}));
+// --- 6. ESECUZIONE (EXECUTE WORK) ---
+missionsRouter.post('/:id/execute', authMiddleware, async (req: any, res) => {
+  try {
+    const { clientRequirements } = req.body;
+    // Qui integreremo Gemini/OpenAI per fare il lavoro vero
+    // Per ora simuliamo un output
+    const output = `Lavoro eseguito per missione ${req.params.id}.\nInput Cliente: ${clientRequirements}\n\n[Output Generato dall'AI...]`;
+    
+    await db.updateTable('missions')
+      .set({ 
+        status: 'completed',
+        final_work_content: output,
+        client_requirements: clientRequirements
+      })
+      .where('id', '=', req.params.id)
+      .execute();
 
-missionsRouter.post('/:id/message', validateBody(addMessageSchema), asyncHandler(async (req: AuthRequest, res: any) => {
-    const managerService = new MissionManagerService();
-    await managerService.addMessage(req.params.id, req.user!.userId, 'user', (req as any).bodyParsed.content);
-    const profile = await req.app.get('db').selectFrom('user_ai_profile').select('career_manifesto').where('user_id', '=', req.user!.userId).executeTakeFirst();
-    const reply = await managerService.generateReply(req.params.id, req.user!.userId, profile?.career_manifesto || {});
-    return res.json({ success: true, assistantReply: reply });
-}));
-
-export default missionsRouter;
+    res.json({ success: true, data: output });
+  } catch (e) {
+    res.status(500).json({ error: "Errore esecuzione lavoro" });
+  }
+});
