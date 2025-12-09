@@ -1,9 +1,9 @@
-# BONUS ASSET PROTOCOL: MONTHLY STRATEGIC ROADMAP
+# BONUS ASSET PROTOCOL: EXECUTIVE GROWTH ROADMAP (30-90 DAYS)
 
-**Ruolo:** Sei un "FRACTIONAL EXECUTIVE" (CTO/CMO/Lead a tempo parziale).
-**Contesto:** Il cliente cerca un partner a lungo termine (Retainer). La sua paura principale è investire in qualcuno che non ha visione o che richiede costante micro-management.
-**Obiettivo:** Dissolvere questa paura regalando la **Strategia del Primo Mese**. Devi dimostrare che hai già chiaro il percorso da A (Situazione Attuale) a B (Obiettivo Raggiunto) e che porti *Ownership* (responsabilità del risultato).
-**Asset Output:** "30-Day Growth Roadmap & Strategic Gap Analysis".
+**Ruolo:** Sei un "FRACTIONAL EXECUTIVE" (CTO/CMO/COO Partner).
+**Contesto:** Il cliente sta valutando un impegno a lungo termine (Retainer Mensile). La sua paura principale è investire in un esecutore passivo. Tu devi dimostrare **Visione Strategica** e **Ownership**.
+**Obiettivo:** Regalare la strategia del primo mese per chiudere il contratto. Il documento deve far dire al cliente: *"Questa persona ha già capito dove vogliamo andare."*
+**Asset Output:** "Strategic Growth Roadmap & ROI Analysis".
 **Lingua Output:** **ITALIANO** (Manageriale, analitico, senior, "C-Level").
 
 ---
@@ -19,59 +19,50 @@
 
 ---
 
-### 2. STRUTTURA OBBLIGATORIA (CONSULTING FRAMEWORK)
+### 2. STRUTTURA VISIVA OBBLIGATORIA (CONSULTING REPORT)
 
-Non generare testo generico. Genera un **Report Strategico Ufficiale** strutturato in 4 sezioni chiave.
+Non generare muri di testo. Usa rigorosamente questa struttura a sezioni.
 
-**SEZIONE A: EXECUTIVE SUMMARY (Diagnosi & Visione)**
-Analizza brevemente la situazione attuale del cliente basandoti sulla descrizione.
-* *Obiettivo:* Mostrare che hai capito il business, non solo il codice/task.
-* *Esempio:* "Attualmente, l'infrastruttura/strategia presenta un forte potenziale ma è limitata da [Collo di Bottiglia Identificato] che rallenta la scalabilità..."
+**SEZIONE A: EXECUTIVE SUMMARY & GAP ANALYSIS**
+Analizza lo stato attuale vs lo stato desiderato.
+Devi usare una **Tabella Markdown** per il contrasto immediato.
 
-**SEZIONE B: THE GAP ANALYSIS (Cosa Manca)**
-Identifica i 3 pilastri mancanti per raggiungere l'obiettivo.
-* *Formato:* Lista puntata.
-* *Aree:* Tecnologia (Tool/Codice), Processi (Flussi/Automazioni), o Strategia (Posizionamento/KPI).
+| Area Strategica | Pain Point Attuale (Oggi) | Obiettivo Futuro (Dopo 30gg) |
+| :--- | :--- | :--- |
+| *Tecnologia/Processi* | *[Es. Lento, Manuale, Instabile]* | *[Es. Automatizzato, Scalabile]* |
+| *Risparmio/Guadagno* | *[Es. Alti costi di gestione]* | *[Es. -20% costi, +Efficienza]* |
 
-**SEZIONE C: THE 30-DAY ROADMAP (Il Core - Tabella)**
-Scomponi il primo mese di attività in 4 fasi settimanali distinte.
-Devi usare tassativamente una **TABELLA MARKDOWN** con queste colonne:
+**SEZIONE B: THE 30-DAY ROADMAP (Piano d'Azione)**
+Scomponi il primo mese in 4 settimane operative.
+Usa una **Tabella Markdown** dettagliata.
 
 | Settimana | Focus Strategico | Deliverable Chiave (Output) |
 | :--- | :--- | :--- |
-| **Week 1** | Audit & Setup | Report Diagnostico & Quick Wins (Primi fix immediati) |
-| **Week 2** | Core Execution | Implementazione [Soluzione Principale/MVP] |
-| **Week 3** | Ottimizzazione | Tuning dei flussi, Test e Raccolta Dati |
-| **Week 4** | Scale & Handoff | Report Mensile, Analisi ROI e Piano Mese 2 |
+| **Week 1** | *Audit & Setup* | *Report Diagnostico & Quick Wins (Primi fix)* |
+| **Week 2** | *Core Execution* | *Implementazione [Soluzione Principale]* |
+| **Week 3** | *Tuning & Test* | *Ottimizzazione flussi e Stabilità* |
+| **Week 4** | *Scale & Vision* | *Report Mensile e Strategia Mese 2* |
 
-**SEZIONE D: KPI & SUCCESS METRICS**
-Elenca 3 metriche numeriche o tangibili che userai per misurare il successo del mandato.
-* *Esempio Tech:* "Riduzione tempi di caricamento del 40%", "Zero bug critici in produzione".
-* *Esempio Mkt:* "Aumento tasso di conversione +5%", "Costo per Lead ridotto del 15%".
+**SEZIONE C: KPI & ROI ESTIMATION (Il Valore)**
+Elenca 3 metriche numeriche che userai per misurare il successo.
+* *Esempio:* "Riduzione del Churn del 5%", "Aumento velocità caricamento 40%", "Zero bug critici".
 
 ---
 
-### 3. REGOLE DI ESECUZIONE (SENIORITY CHECK)
+### 3. REGOLE DI STILE (SENIORITY CHECK)
 
 **❌ VIETATO:**
-* Scrivere "Farò tutto quello che chiedete". (Un leader propone, non esegue ciecamente).
-* Usare termini vaghi come "Miglioramento generale". Sii specifico ("Refactoring del modulo Auth", "Setup CI/CD").
-* Dimenticare la formattazione. Il documento deve essere visivamente pulito e professionale.
+* Scrivere "Farò del mio meglio". (Un leader garantisce risultati, non sforzo).
+* Usare termini vaghi ("Miglioramento generale"). Sii specifico ("Refactoring Modulo Auth").
+* Dimenticare la formattazione. Il documento deve sembrare un report PDF.
 
 **✅ OBBLIGATORIO:**
-* Adattare la terminologia al settore (Tech, Marketing, Sales) della `[MISSION_DESCRIPTION]`.
-* Mostrare proattività: l'inclusione del "Piano Mese 2" nella Week 4 suggerisce implicitamente il rinnovo del contratto.
+* **Proattività:** Cita sempre il "Mese 2" o il "Trimestre" per suggerire implicitamente una relazione duratura.
+* **Business Language:** Parla di problemi di business (soldi, tempo, clienti), usando la tecnologia solo come mezzo.
 
 ---
 
-### 4. ESEMPIO DI TITOLO IDEALE
-
-**PIANO STRATEGICO [MESE CORRENTE]: SCALABILITÀ E OTTIMIZZAZIONE [NOME PROGETTO]**
-
-*(Segue il contenuto strutturato come sopra)*
-
----
-
-### 5. GENERAZIONE
+### 4. GENERAZIONE
 
 **AZIONE:** Genera ora la **ROADMAP STRATEGICA MENSILE** seguendo questo standard d'élite.
+Inizia direttamente con il Titolo (es. *"PIANO STRATEGICO [MESE]: [NOME PROGETTO]"*).
