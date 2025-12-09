@@ -11,6 +11,7 @@ interface UsersTable {
   id: Generated<string>;
   email: string;
   password_hash: string;
+  status: string; // <--- AGGIUNTO: Lo scheduler lo cercava
   created_at: Generated<Date>;
 }
 
@@ -19,7 +20,7 @@ interface MissionThreadsTable {
   id: Generated<string>;
   mission_id: string;
   user_id: string;
-  sender: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system'; // <--- CORRETTO: Era 'sender', ma il codice usa 'role'
   content: string;
   created_at: Generated<Date>;
 }
@@ -36,7 +37,7 @@ interface UserAIProfileTable {
 
 // Tabella Missioni
 interface MissionsTable {
-  id: Generated<string>; // Usa Generated per dire "lo fa il DB"
+  id: Generated<string>;
   user_id: string | null;
   title: string;
   description: string | null;
@@ -44,8 +45,8 @@ interface MissionsTable {
   source_url: string | null;
   reward_amount: number | null;
   estimated_duration_hours: number | null;
-  created_at: Generated<Date>; // Automatico
-  updated_at: Generated<Date>; // Automatico o gestito via codice
+  created_at: Generated<Date>; 
+  updated_at: Generated<Date>; 
   
   // Campi nuovi per Gig Economy
   platform: string | null;
@@ -67,8 +68,8 @@ interface MissionsTable {
 
 // Interfaccia Globale del DB
 export interface Database {
-  users: UsersTable;                  // <--- AGGIUNTO
-  mission_threads: MissionThreadsTable; // <--- AGGIUNTO
+  users: UsersTable;                  
+  mission_threads: MissionThreadsTable; 
   user_ai_profile: UserAIProfileTable;
   missions: MissionsTable;
 }
