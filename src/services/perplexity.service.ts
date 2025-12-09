@@ -1,233 +1,174 @@
 import axios from 'axios';
+import { db } from '../infra/db';
 import fs from 'fs';
 import path from 'path';
-import { db } from '../infra/db';
-
-const PERPLEXITY_API_URL = 'https://api.perplexity.ai/chat/completions';
-const MAX_DAILY_SEARCHES = 3;
-
-// --- INTERFACCE DATI ---
-
-export interface ClientCareerBlueprint {
-  currentRole: string;
-  dreamRole: string;
-  keySkillsToAcquire: string[];
-  interests: string[];
-  antiVision: string[];
-  unfairAdvantages: string[];
-  minHourlyRate: number;
-  riskTolerance: 'LOW' | 'HIGH'; 
-  energyWindow: 'MORNING' | 'NIGHT' | 'WEEKEND';
-}
-
-// Struttura JSON "Ricca"
-interface RichOpportunity {
-  title: string;
-  company_name: string;
-  source_url: string;
-  platform: string; 
-  payout_estimation: string;
-  remote_type: string;
-  skills_required: string[];
-  experience_level: string;
-  match_score: number;
-  analysis_notes: string;
-}
-
-// Interfaccia per gestire la quota
-interface UserUsageStats {
-  last_search_date: string; // YYYY-MM-DD
-  daily_count: number;
-}
 
 export class PerplexityService {
   private apiKey: string;
   private kbPath: string;
-  private sourcesMap: any;
 
   constructor() {
     this.apiKey = process.env.PERPLEXITY_API_KEY || '';
-    const isProduction = process.env.NODE_ENV === 'production';
-    this.kbPath = isProduction 
+    
+    // Gestione path per ambiente Produzione (dist) vs Sviluppo (src)
+    const isProd = process.env.NODE_ENV === 'production';
+    this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
       : path.join(process.cwd(), 'src', 'knowledge_base');
-
-    if (!this.apiKey) console.warn('⚠️ ATTENZIONE: PERPLEXITY_API_KEY mancante.');
-    this.sourcesMap = this.loadJsonFile('sources_masterlist.json') || {};
   }
 
+  // Helper per caricare i prompt dai file .md
   private loadTextFile(filename: string): string {
-    try { return fs.readFileSync(path.join(this.kbPath, filename), 'utf-8'); } catch (e) { return ""; }
-  }
-
-  private loadJsonFile(filename: string): any {
-    try { return JSON.parse(fs.readFileSync(path.join(this.kbPath, filename), 'utf-8')); } catch (e) { return null; }
-  }
-
-  // --- GESTIONE QUOTA (3/DAY) ---
-  private async checkAndIncrementQuota(userId: string): Promise<boolean> {
-    const today = new Date().toISOString().split('T')[0];
-    const profile = await db.selectFrom('user_ai_profile').select(['weights', 'user_id']).where('user_id', '=', userId).executeTakeFirst();
-    if (!profile) return false;
-
-    let stats: UserUsageStats = { last_search_date: today, daily_count: 0 };
-    let currentWeights: any = profile.weights || {};
-    
-    if (currentWeights._usage_stats) stats = currentWeights._usage_stats;
-
-    if (stats.last_search_date !== today) {
-      stats.last_search_date = today;
-      stats.daily_count = 0;
-    }
-
-    if (stats.daily_count >= MAX_DAILY_SEARCHES) {
-      console.warn(`⛔ [QUOTA] Utente ${userId} limite raggiunto.`);
-      return false;
-    }
-
-    stats.daily_count++;
-    currentWeights._usage_stats = stats;
-
-    await db.updateTable('user_ai_profile')
-      .set({ weights: JSON.stringify(currentWeights) })
-      .where('user_id', '=', userId)
-      .execute();
-
-    console.log(`Hz [QUOTA] Ricerca ${stats.daily_count}/${MAX_DAILY_SEARCHES} ok.`);
-    return true;
-  }
-
-  // --- SELEZIONE FONTI (INCLUDE GIG ECONOMY) ---
-  private getTargetSites(interests: string[], dreamRole: string, currentRole: string = ""): string[] {
-    // AGGIUNTA MANUALE PIATTAFORME GIG
-    let sites: string[] = [
-      ...(this.sourcesMap.aggregators || []),
-      "upwork.com", "fiverr.com", "freelancer.com", "toptal.com", "peopleperhour.com"
-    ];
-    
-    const context = (interests.join(' ') + ' ' + dreamRole + ' ' + currentRole).toLowerCase();
-
-    if (context.includes('crypto') || context.includes('web3')) sites.push(...(this.sourcesMap.crypto_web3 || []));
-    if (context.includes('writ') || context.includes('copy')) sites.push(...(this.sourcesMap.writing_content || []));
-    if (context.includes('dev') || context.includes('tech')) sites.push(...(this.sourcesMap.tech_dev || []));
-    if (context.includes('design') || context.includes('art')) sites.push(...(this.sourcesMap.design_creative || []));
-    if (context.includes('marketing') || context.includes('sales')) sites.push(...(this.sourcesMap.marketing_sales || []));
-    if (context.includes('ai') || context.includes('data')) sites.push(...(this.sourcesMap.ai_training || []));
-    
-    if (sites.length <= 15) {
-      sites.push(...(this.sourcesMap.general_remote || []));
-      sites.push(...(this.sourcesMap.async_remote || []));
-    }
-
-    return Array.from(new Set(sites)).slice(0, 35);
-  }
-
-  private async searchWeb(systemPrompt: string, userQuery: string): Promise<string> {
-    console.log(`🌐 [HUNTER] Deep Search avviata...`);
-    const now = new Date().toISOString();
     try {
-      const response = await axios.post(
-        PERPLEXITY_API_URL,
-        {
-          model: 'sonar-pro',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `${userQuery} \n\n(Context: Current Date/Time is ${now}. Find LIVE listings only.)` }
-          ],
-          temperature: 0.1,
-          return_citations: true 
-        },
-        { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
-      );
-      return response.data.choices[0].message.content;
-    } catch (error: any) {
-      console.error('❌ Errore API Perplexity:', error.message);
-      return '[]';
+      const filePath = path.join(this.kbPath, filename);
+      return fs.readFileSync(filePath, 'utf-8');
+    } catch (e) {
+      console.warn(`⚠️ Warning: Impossibile caricare il file ${filename}. Uso fallback.`);
+      return ""; 
     }
   }
 
-  public async findGrowthOpportunities(userId: string, clientProfile: ClientCareerBlueprint) {
-    // 1. CONTROLLO QUOTA
-    const canProceed = await this.checkAndIncrementQuota(userId);
-    if (!canProceed) throw new Error(`Quota giornaliera raggiunta (${MAX_DAILY_SEARCHES} ricerche). Riprova domani.`);
+  // ==================================================================================
+  // 🔍 CORE: RICERCA OPPORTUNITÀ (Daily, Weekly, Monthly)
+  // ==================================================================================
+  public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
+    
+    console.log(`🚀 [HUNTER] Avvio caccia in modalità: ${mode.toUpperCase()}`);
 
-    console.log(`🚀 [HUNTER] Caccia per: ${clientProfile.dreamRole}`);
-    const targetSites = this.getTargetSites(clientProfile.interests, clientProfile.dreamRole, clientProfile.currentRole);
-    const seoLogic = this.loadTextFile('dynamic_seo_logic.md');
-    const systemInstruction = this.loadTextFile('system_headhunter_prompt.md');
+    // 1. SELEZIONE DEL MANUALE (PROMPT) CORRETTO
+    let systemInstruction = "";
+    let budgetContext = "";
 
-    const systemPrompt = `
-      ${systemInstruction}
-      ---
-      TARGET PROFILE: ${clientProfile.dreamRole}
-      SKILLS: ${clientProfile.keySkillsToAcquire.join(', ')}
-      MIN PAY: ${clientProfile.minHourlyRate} EUR/hr
-      ---
-      SEARCH STRATEGY:
-      ${seoLogic}
-      PRIORITY DOMAINS: ${targetSites.join(', ')}
+    if (mode === 'weekly') {
+        // Carica il cacciatore settimanale (Sprint da 3.5 ore / 1 settimana)
+        systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
+        budgetContext = "Focus on Fixed Price projects ($250-$1200) or short-term urgency.";
+    } else if (mode === 'monthly') {
+        // Carica il cacciatore mensile (Retainers / Progetti complessi)
+        systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
+        budgetContext = "Focus on Monthly Retainers (>$2000/mo) or Large Fixed Projects.";
+    } else {
+        // Default: Daily (Micro-task)
+        systemInstruction = this.loadTextFile('system_headhunter_prompt.md'); 
+        budgetContext = `Focus on quick hourly tasks or micro-projects matching rate: ${clientProfile.minHourlyRate} EUR/hr.`;
+    }
 
-      SPECIAL INSTRUCTION FOR GIG PLATFORMS (Upwork, Fiverr, etc.):
-      Since direct listings might be behind a login wall, look for:
-      1. Recent public aggregators indexing these gigs.
-      2. "Client seeking freelancer" posts on Twitter/Reddit referencing these platforms.
-      3. Publicly indexed profile requests matching the candidate's skills.
-      OBJECTIVE: Find full-time contracts AND "Second Income" side hustles.
+    // Fallback se il file manca
+    if (!systemInstruction) {
+        systemInstruction = "You are an expert headhunter. Find freelance jobs suitable for the requested duration.";
+    }
+
+    // 2. COSTRUZIONE DELLA QUERY
+    const userContext = `
+      CANDIDATE PROFILE:
+      - Role: ${clientProfile.dreamRole}
+      - Skills: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
+      - Interests: ${(clientProfile.interests || []).join(', ')}
+      - Constraints: ${budgetContext}
     `;
 
-    const masterQuery = `Execute Deep Search for "${clientProfile.dreamRole}" jobs AND "Freelance/Side-Hustle" opportunities. Prioritize last 48h. Return ONLY valid JSON Array.`;
+    const searchMessages = [
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: `${userContext}\n\nTASK: Find the best 5 active job listings on Upwork, Fiverr, LinkedIn, or Toptal that match this profile and the '${mode}' duration requirement. Return strictly JSON.` }
+    ];
 
-    const rawResult = await this.searchWeb(systemPrompt, masterQuery);
-    await this.processAndSaveOpportunities(rawResult, userId);
-  }
-
-  private async processAndSaveOpportunities(rawJson: string, userId: string | null) {
     try {
-      let cleanJson = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
-      const start = cleanJson.indexOf('['); const end = cleanJson.lastIndexOf(']');
-      if (start !== -1 && end !== -1) cleanJson = cleanJson.substring(start, end + 1);
+      // 3. CHIAMATA API PERPLEXITY
+      const response = await axios.post(
+        'https://api.perplexity.ai/chat/completions',
+        {
+          model: 'sonar-pro', // Modello ottimizzato per la ricerca web
+          messages: searchMessages,
+          temperature: 0.2 // Bassa temperatura per dati precisi
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const rawContent = response.data.choices[0].message.content;
       
-      let opportunities: RichOpportunity[] = JSON.parse(cleanJson);
-      console.log(`💰 Trovate ${opportunities.length} opportunità.`);
+      // 4. SALVATAGGIO NEL DB CON I PARAMETRI NUOVI
+      await this.processAndSaveOpportunities(rawContent, userId, mode);
 
-      for (const opp of opportunities) {
-        if (!opp.source_url || !opp.title) continue;
-        const existing = await db.selectFrom('missions').select('id').where('source_url', '=', opp.source_url).executeTakeFirst();
-        if (existing) continue;
-
-        const reward = this.parseMoneySafe(opp.payout_estimation);
-        await db.insertInto('missions').values({
-            user_id: userId, 
-            title: opp.title.substring(0, 255),
-            description: opp.analysis_notes,
-            source_url: opp.source_url,
-            raw_category: opp.platform || 'Headhunter',
-            reward_amount: reward,
-            estimated_duration_hours: 1,
-            status: 'pending',
-            source: 'global_headhunter',
-            company_name: opp.company_name,
-            remote_type: opp.remote_type,
-            skills_required: opp.skills_required,
-            experience_level: opp.experience_level,
-            match_score: opp.match_score,
-            analysis_notes: opp.analysis_notes,
-            platform: opp.platform, 
-            raw_data: JSON.stringify(opp) 
-          }).execute();
-        console.log(`✅ [DB] Salvata: ${opp.title} (${opp.platform || 'Web'})`);
-      }
-    } catch (e) { console.error('❌ Errore salvataggio:', e); }
+    } catch (error: any) {
+      console.error("❌ Errore Perplexity API:", error.response?.data || error.message);
+      throw new Error("Impossibile completare la ricerca su Perplexity.");
+    }
   }
 
-  private parseMoneySafe(input: string): number {
-    if (!input) return 0;
-    const clean = input.toLowerCase().replace(/[^0-9.k]/g, ''); 
-    let val = parseFloat(clean.replace('k', '')) || 0;
-    if (clean.includes('k')) val *= 1000;
-    if (input.toLowerCase().includes('year') || val > 15000) val = val / 2000;
-    else if (input.toLowerCase().includes('month') || (val > 1000 && val <= 15000)) val = val / 160;
-    if (val > 9999) return 9999;
-    return parseFloat(val.toFixed(2));
+  // ==================================================================================
+  // 💾 PARSING E SALVATAGGIO (Gestisce Type e Max Commands)
+  // ==================================================================================
+  private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
+    try {
+      // Pulizia del JSON (rimuove backticks o testo extra)
+      const cleanJson = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
+      const startIndex = cleanJson.indexOf('[');
+      const endIndex = cleanJson.lastIndexOf(']');
+      
+      if (startIndex === -1 || endIndex === -1) throw new Error("JSON non trovato nella risposta.");
+      
+      const jsonStr = cleanJson.substring(startIndex, endIndex + 1);
+      const missions = JSON.parse(jsonStr);
+
+      // Definizione Limiti Comandi in base al tipo
+      let maxCommands = 20; // Default Daily
+      if (type === 'weekly') maxCommands = 100;
+      if (type === 'monthly') maxCommands = 400;
+
+      // Inserimento nel Database
+      for (const m of missions) {
+        // Controllo duplicati (basato su URL)
+        const exists = await db.selectFrom('missions')
+            .select('id')
+            .where('source_url', '=', m.url || m.source_url)
+            .executeTakeFirst();
+
+        if (!exists) {
+            await db.insertInto('missions')
+              .values({
+                user_id: userId,
+                title: m.title || "Opportunità senza titolo",
+                description: m.description || m.summary || "Nessuna descrizione",
+                source_url: m.url || m.source_url || "#",
+                source: m.source || "Web",
+                reward_amount: this.parseReward(m.budget || m.reward),
+                estimated_duration_hours: m.hours || 1,
+                status: 'pending',
+                
+                // NUOVI CAMPI PER LA GESTIONE DEL TEMPO
+                type: type, // 'daily', 'weekly', 'monthly'
+                max_commands: maxCommands,
+                command_count: 0,
+                conversation_history: JSON.stringify([]), // Inizializza memoria vuota
+                
+                // Metadati extra
+                platform: m.platform || "General",
+                company_name: m.company || "Confidenziale",
+                match_score: m.match_score || 80,
+                analysis_notes: m.analysis_notes || "Generato da Agente-4",
+                raw_data: JSON.stringify(m)
+              })
+              .execute();
+        }
+      }
+      console.log(`✅ Salvate ${missions.length} missioni (${type}).`);
+
+    } catch (e) {
+      console.error("Errore Parsing/Salvataggio Missioni:", e);
+      // Non blocchiamo tutto se il parsing fallisce, ma lo logghiamo
+    }
+  }
+
+  // Helper per estrarre numeri dalle stringhe budget (es. "$500" -> 500)
+  private parseReward(rewardString: string | number): number {
+    if (typeof rewardString === 'number') return rewardString;
+    if (!rewardString) return 0;
+    const clean = rewardString.replace(/[^0-9.]/g, '');
+    return parseFloat(clean) || 0;
   }
 }

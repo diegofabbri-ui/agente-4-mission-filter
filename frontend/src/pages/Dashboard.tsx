@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import apiClient from '../lib/apiClient';
 import { 
   User, ChevronDown, ChevronUp, Play, 
   CheckCircle, XCircle, ArrowRight, Briefcase, 
-  Loader2, Sparkles, Cpu, Activity, Lock, Search, Radar, AlertTriangle
+  Loader2, Sparkles, Cpu, Activity, Lock, Search, Radar, AlertTriangle, ExternalLink, Paperclip, File as FileIcon, Zap, Calendar, Award
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-// --- TIPI ---
+// ==================================================================================
+// 1. DEFINIZIONE TIPI E INTERFACCE
+// ==================================================================================
+
 interface Mission {
   id: string;
   title: string;
@@ -24,9 +27,35 @@ interface Mission {
   final_work_content?: string;
   client_requirements?: string;
   platform?: string;
+  type?: 'daily' | 'weekly' | 'monthly'; // Aggiunto il tipo
 }
 
-// --- COMPONENTI UI ---
+interface AttachedFile {
+  name: string;
+  type: string;
+  content: string; 
+}
+
+// ==================================================================================
+// 2. UTILS & HELPERS
+// ==================================================================================
+
+const readFileContent = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      if (file.type.startsWith('image/')) {
+          reader.readAsDataURL(file);
+      } else {
+          reader.readAsText(file);
+      }
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+  });
+};
+
+// ==================================================================================
+// 3. COMPONENTI UI GENERICI
+// ==================================================================================
 
 const GlassCard = ({ children, className = "" }: { children: React.ReactNode, className?: string }) => (
   <div className={`relative bg-[#0f1115]/60 backdrop-blur-xl border border-white/5 shadow-2xl rounded-2xl overflow-hidden transition-all duration-500 hover:shadow-indigo-500/10 hover:border-white/10 ${className}`}>
@@ -51,21 +80,14 @@ const SectionHeader = ({ title, icon: Icon, colorClass = "text-indigo-400", bgCl
 
 const ActionButton = ({ onClick, disabled, icon: Icon, variant = 'primary' }: { onClick: () => void, disabled?: boolean, icon: any, variant?: 'primary' | 'danger' | 'success' }) => {
   const baseClasses = "p-3 rounded-xl transition-all duration-300 flex items-center justify-center shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
-  
   const variants = {
     primary: "bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-indigo-500/20 hover:shadow-indigo-500/40",
     danger: "bg-gray-800/50 hover:bg-red-500/20 text-gray-400 hover:text-red-400 border border-transparent hover:border-red-500/30",
     success: "bg-gray-800/50 hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-400 border border-transparent hover:border-emerald-500/30"
   };
-
-  return (
-    <button onClick={onClick} disabled={disabled} className={`${baseClasses} ${variants[variant]}`}>
-      <Icon className="w-5 h-5" />
-    </button>
-  );
+  return <button onClick={onClick} disabled={disabled} className={`${baseClasses} ${variants[variant]}`}><Icon className="w-5 h-5" /></button>;
 };
 
-// --- COMPONENTE NOTIFICA TOAST ---
 const NotificationToast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => (
   <div className={`fixed top-24 right-6 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl backdrop-blur-md border animate-in slide-in-from-right duration-500 ${type === 'success' ? 'bg-emerald-900/90 border-emerald-500/30 text-emerald-100' : 'bg-red-900/90 border-red-500/30 text-red-100'}`}>
     {type === 'success' ? <CheckCircle className="w-6 h-6 text-emerald-400" /> : <AlertTriangle className="w-6 h-6 text-red-400" />}
@@ -77,24 +99,159 @@ const NotificationToast = ({ message, type, onClose }: { message: string, type: 
   </div>
 );
 
+const Label = ({ text }: { text: string }) => (<h4 className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] mb-3 pl-1 border-l-2 border-indigo-500/50">{text}</h4>);
+
+
+// ==================================================================================
+// 4. COMPONENTI SPECIFICI
+// ==================================================================================
+
+// --- CARD MISSIONE ATTIVA (Layout 3) ---
+function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute: (id: string, text: string, files: AttachedFile[]) => Promise<void> }) {
+  const [localInput, setLocalInput] = useState(mission.client_requirements || "");
+  const [localAttachments, setLocalAttachments] = useState<AttachedFile[]>([]);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files);
+      const processed: AttachedFile[] = [];
+      for (const f of newFiles) {
+        try {
+          const content = await readFileContent(f);
+          processed.push({ name: f.name, type: f.type, content });
+        } catch (err) { console.error(err); }
+      }
+      setLocalAttachments([...localAttachments, ...processed]);
+    }
+  };
+
+  const triggerExecution = async () => {
+    const hasText = localInput && localInput.trim().length > 0;
+    const hasFiles = localAttachments.length > 0;
+
+    if (!hasText && !hasFiles && !mission.client_requirements) {
+        alert("Inserisci istruzioni o allega file per procedere.");
+        return;
+    }
+
+    setIsExecuting(true);
+    await onExecute(mission.id, localInput, localAttachments);
+    setIsExecuting(false);
+  };
+
+  return (
+    <GlassCard className="p-8 border-l-4 border-l-emerald-500">
+      <div className="mb-8 pb-6 border-b border-white/5">
+        <div className="flex justify-between items-start">
+            <div>
+                <h3 className="text-2xl font-bold text-white">{mission.title}</h3>
+                <p className="text-gray-500 text-sm mt-1">@ {mission.company_name}</p>
+            </div>
+            {/* Badge Tipo Missione */}
+            {mission.type && (
+                <span className={`px-3 py-1 rounded text-[10px] uppercase font-bold tracking-widest border 
+                    ${mission.type === 'weekly' ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' : 
+                      mission.type === 'monthly' ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' : 
+                      'bg-emerald-900/20 text-emerald-400 border-emerald-500/30'}`}>
+                    {mission.type} MISSION
+                </span>
+            )}
+        </div>
+      </div>
+      
+      <div className="flex flex-col xl:flex-row items-stretch gap-6">
+        {/* INPUT */}
+        <div className="flex-1 flex flex-col group relative">
+          <Label text="Input Cliente & Materiale" />
+          <div className="relative flex-1 bg-black/40 border border-gray-800 rounded-2xl overflow-hidden focus-within:border-indigo-500 transition-colors flex flex-col">
+            <textarea 
+              disabled={isExecuting} 
+              value={localInput}
+              onChange={(e) => setLocalInput(e.target.value)}
+              placeholder="Incolla le istruzioni del cliente..." 
+              className="w-full flex-1 bg-transparent border-none p-6 text-sm text-gray-300 outline-none resize-none placeholder:text-gray-700" 
+            />
+            <div className="p-4 border-t border-gray-800 bg-[#0a0a0c]/50 flex items-center justify-between">
+                <div className="flex flex-wrap gap-2">
+                  {localAttachments.map((file, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-indigo-900/20 border border-indigo-500/30 px-3 py-1 rounded-full text-xs text-indigo-300">
+                          <FileIcon className="w-3 h-3" /> <span className="max-w-[100px] truncate">{file.name}</span>
+                          <button onClick={() => setLocalAttachments(localAttachments.filter((_, idx) => idx !== i))} className="hover:text-white"><XCircle className="w-3 h-3" /></button>
+                      </div>
+                  ))}
+                </div>
+                <div className="flex items-center">
+                  <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleFileChange} />
+                  <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Allega File">
+                      <Paperclip className="w-5 h-5" />
+                  </button>
+                </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ACTION BUTTON */}
+        <div className="flex flex-col items-center justify-center px-4">
+          {isExecuting ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" /> : 
+            <button onClick={triggerExecution} className="p-5 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 hover:scale-110 shadow-lg shadow-indigo-500/30 transition-all active:scale-95" title="Esegui / Rigenera">
+              <ArrowRight className="w-6 h-6 text-white" />
+            </button>
+          }
+        </div>
+
+        {/* OUTPUT */}
+        <div className="flex-1 flex flex-col">
+          <Label text="Output Finale (Rigenerabile)" />
+          <div className={`flex-1 rounded-2xl p-6 relative overflow-hidden min-h-[300px] transition-all duration-500 ${mission.final_work_content ? 'bg-emerald-950/10 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.05)]' : 'bg-black/40 border border-gray-800 border-dashed'}`}>
+            {mission.final_work_content ? <pre className="text-xs text-emerald-100 font-mono whitespace-pre-wrap h-full overflow-y-auto custom-scrollbar leading-relaxed">{mission.final_work_content}</pre> : <div className="h-full flex items-center justify-center text-gray-700"><Cpu className="w-12 h-12 mb-4 opacity-20" /><span className="text-xs font-medium uppercase tracking-widest opacity-50">In attesa di input...</span></div>}
+          </div>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+// --- CARD DISCOVERY (Layout 1) ---
+function MissionDiscoveryCard({ mission, onDevelop, loading }: any) {
+    const [isOpen, setIsOpen] = useState(false);
+    return (
+      <div className="relative bg-[#13151a] border border-gray-800/50 rounded-xl overflow-hidden mb-4">
+        <div className="p-5 flex justify-between items-center cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
+            <div className="flex items-center gap-3">
+                <div className={`w-2 h-12 rounded-full ${mission.type === 'monthly' ? 'bg-purple-500' : mission.type === 'weekly' ? 'bg-blue-500' : 'bg-emerald-500'}`}></div>
+                <div>
+                    <h3 className="text-white font-bold">{mission.title}</h3>
+                    <p className="text-xs text-gray-500">{mission.company_name} • {mission.platform} • {mission.type ? mission.type.toUpperCase() : 'DAILY'}</p>
+                </div>
+            </div>
+            <div className="flex items-center gap-4"><span className="text-emerald-400 text-sm font-mono">€{mission.reward_amount}</span><button onClick={(e) => { e.stopPropagation(); onDevelop(mission.id); }} disabled={loading} className="bg-indigo-600 p-2 rounded-lg text-white hover:bg-indigo-500">{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}</button></div>
+        </div>
+        {isOpen && <div className="p-5 pt-0 text-sm text-gray-400 border-t border-gray-800">{mission.analysis_notes}</div>}
+      </div>
+    );
+}
+
+// ==================================================================================
+// 5. MAIN DASHBOARD
+// ==================================================================================
+
 export default function Dashboard() {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [isHunting, setIsHunting] = useState(false);
-  
-  // STATO NOTIFICA
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
-  
   const [selectedDevMissionId, setSelectedDevMissionId] = useState<string>("");
-  const [clientInput, setClientInput] = useState("");
-  const [executingId, setExecutingId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  
+  // NUOVO STATO: MODALITÀ DI CACCIA
+  const [huntMode, setHuntMode] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
   useEffect(() => setMounted(true), []);
 
   const showNotification = (message: string, type: 'success' | 'error') => {
     setNotification({ message, type });
-    // Se è un errore (tipo quota), lo lasciamo più a lungo (7 secondi)
     setTimeout(() => setNotification(null), type === 'error' ? 7000 : 4000);
   };
 
@@ -103,18 +260,13 @@ export default function Dashboard() {
       const res = await apiClient.get('/missions/my-missions?limit=50');
       const parsedData = res.data.data.map((m: any) => ({
         ...m,
-        final_deliverable_json: typeof m.final_deliverable_json === 'string' 
-          ? JSON.parse(m.final_deliverable_json) 
-          : m.final_deliverable_json
+        final_deliverable_json: typeof m.final_deliverable_json === 'string' ? JSON.parse(m.final_deliverable_json) : m.final_deliverable_json
       }));
       setMissions(parsedData);
-      
       const firstDev = parsedData.find((m: any) => m.status === 'developed');
       if (firstDev && !selectedDevMissionId) setSelectedDevMissionId(firstDev.id);
-
     } catch (e) { console.error("Errore fetch", e); }
   };
-
   useEffect(() => { fetchMissions(); }, []);
 
   const pendingMissions = missions.filter(m => m.status === 'pending');
@@ -126,24 +278,23 @@ export default function Dashboard() {
   const handleHunt = async () => {
     if (isHunting) return;
     setIsHunting(true);
+    
+    // Logica di routing in base al bottone selezionato
+    let endpoint = '/missions/hunt';
+    if (huntMode === 'weekly') endpoint = '/missions/hunt/weekly';
+    if (huntMode === 'monthly') endpoint = '/missions/hunt/monthly';
+
     try {
-        const res = await apiClient.post('/missions/hunt');
+        const res = await apiClient.post(endpoint);
         if (res.data.success) {
-            showNotification(`Caccia completata! Trovate ${res.data.data.length} nuove opportunità.`, 'success');
+            showNotification(`Caccia ${huntMode.toUpperCase()} completata! Trovate ${res.data.data.length} nuove opportunità.`, 'success');
             await fetchMissions();
         }
     } catch (e: any) {
         const errorMsg = e.response?.data?.error || "Errore sconosciuto.";
-        
-        // GESTIONE SPECIFICA QUOTA 3 RICERCHE
-        if (errorMsg.includes("Quota")) {
-            showNotification("🛑 LIMITE RAGGIUNTO: Hai usato le tue 3 ricerche giornaliere. Torna domani!", 'error');
-        } else {
-            showNotification(`Errore Caccia: ${errorMsg}`, 'error');
-        }
-    } finally {
-        setIsHunting(false);
-    }
+        if (errorMsg.includes("Quota")) showNotification(`🛑 LIMITE ${huntMode.toUpperCase()} RAGGIUNTO.`, 'error');
+        else showNotification(`Errore Caccia: ${errorMsg}`, 'error');
+    } finally { setIsHunting(false); }
   };
 
   const handleDevelop = async (id: string) => {
@@ -151,310 +302,124 @@ export default function Dashboard() {
     try {
       await apiClient.post(`/missions/${id}/develop`);
       await fetchMissions();
-      showNotification("Strategia generata con successo!", 'success');
-    } catch (e) { 
-      showNotification("Errore nello sviluppo. Controlla le API Key.", 'error');
-    } finally { setLoadingId(null); }
+      showNotification("Strategia generata!", 'success');
+    } catch (e) { showNotification("Errore sviluppo.", 'error'); } finally { setLoadingId(null); }
   };
 
   const handleReject = async (id: string) => {
-    if(!confirm("Confermi lo scarto della missione?")) return;
-    try {
-      await apiClient.post(`/missions/${id}/reject`);
-      await fetchMissions();
-      setSelectedDevMissionId("");
-      showNotification("Missione rimossa dal radar.", 'success');
-    } catch (e) { showNotification("Errore durante il rifiuto.", 'error'); }
+    if(!confirm("Confermi lo scarto?")) return;
+    try { await apiClient.post(`/missions/${id}/reject`); await fetchMissions(); setSelectedDevMissionId(""); showNotification("Missione rimossa.", 'success'); } catch (e) { showNotification("Errore rifiuto.", 'error'); }
   };
-
   const handleAccept = async (id: string) => {
-    try {
-      await apiClient.patch(`/missions/${id}/status`, { status: 'active' });
-      await fetchMissions();
-      showNotification("Missione accettata! Inizia l'esecuzione.", 'success');
-    } catch (e) { showNotification("Errore accettazione.", 'error'); }
+    try { await apiClient.patch(`/missions/${id}/status`, { status: 'active' }); await fetchMissions(); showNotification("Missione accettata!", 'success'); } catch (e) { showNotification("Errore accettazione.", 'error'); }
   };
 
-  const handleExecuteWork = async (id: string) => {
-    if (!clientInput) return showNotification("Inserisci i requisiti del cliente prima di procedere!", 'error');
-    setExecutingId(id);
+  const handleExecuteProxy = async (id: string, text: string, files: AttachedFile[]) => {
     try {
-      await apiClient.post(`/missions/${id}/execute`, { clientRequirements: clientInput });
+      await apiClient.post(`/missions/${id}/execute`, { clientRequirements: text, attachments: files });
       await fetchMissions();
-      setClientInput("");
       showNotification("Lavoro completato dall'AI!", 'success');
-    } catch (e) { showNotification("Errore esecuzione.", 'error'); } 
-    finally { setExecutingId(null); }
+    } catch (e) { 
+        showNotification("Errore esecuzione. Token OpenAI o Limite Step?", 'error'); 
+        throw e; 
+    } 
   };
 
   const currentDevMission = developedMissions.find(m => m.id === selectedDevMissionId) || developedMissions[0];
 
+  // Configurazione UI dinamica in base al modo
+  const getHuntUI = () => {
+      switch(huntMode) {
+          case 'weekly': return { color: 'blue', label: 'CACCIA SETTIMANALE (SPRINT)', icon: Calendar };
+          case 'monthly': return { color: 'purple', label: 'CACCIA MENSILE (RETAINER)', icon: Award };
+          default: return { color: 'yellow', label: 'CACCIA GIORNALIERA (DAILY)', icon: Zap };
+      }
+  };
+  const huntUI = getHuntUI();
+
   return (
     <div className={`min-h-screen bg-[#050507] text-gray-100 font-sans pb-20 selection:bg-indigo-500/30 selection:text-white transition-opacity duration-1000 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
+      {notification && <NotificationToast message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
+      <div className="fixed inset-0 pointer-events-none"><div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-900/10 rounded-full blur-[120px]" /><div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 rounded-full blur-[120px]" /></div>
       
-      {/* NOTIFICA TOAST */}
-      {notification && (
-        <NotificationToast 
-          message={notification.message} 
-          type={notification.type} 
-          onClose={() => setNotification(null)} 
-        />
-      )}
-
-      {/* BACKGROUND AMBIENTALE */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-900/10 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 rounded-full blur-[120px]" />
-      </div>
-
-      {/* NAVBAR SENSORIALE */}
       <nav className="sticky top-4 z-50 mx-4 md:mx-8 mb-12">
         <div className="bg-[#0f1115]/80 backdrop-blur-md border border-white/5 rounded-2xl px-6 py-4 flex justify-between items-center shadow-2xl">
-          <div className="flex items-center gap-3 group">
-            <div className="relative">
-              <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-indigo-500/50 transition-all duration-300 group-hover:scale-105">
-                <span className="font-bold text-white text-lg">W</span>
-              </div>
-              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-[#0f1115] rounded-full animate-pulse" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-lg font-bold tracking-tight text-white leading-none">MOON</span>
-              <span className="text-[10px] font-medium text-gray-500 tracking-[0.2em] uppercase">Intelligence Core</span>
-            </div>
-          </div>
-          <Link to="/profile" className="w-10 h-10 rounded-full bg-gray-800/50 hover:bg-white/10 flex items-center justify-center transition-all duration-300 border border-white/5 hover:border-white/20 group">
-            <User className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
-          </Link>
+          <div className="flex items-center gap-3"><div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-xl flex items-center justify-center shadow-lg"><span className="font-bold text-white text-lg">W</span></div><div className="flex flex-col"><span className="text-lg font-bold tracking-tight text-white leading-none">MOON</span><span className="text-[10px] font-medium text-gray-500 tracking-[0.2em] uppercase">Intelligence Core</span></div></div>
+          <Link to="/profile" className="w-10 h-10 rounded-full bg-gray-800/50 hover:bg-white/10 flex items-center justify-center border border-white/5"><User className="w-5 h-5 text-gray-400" /></Link>
         </div>
       </nav>
 
       <main className="max-w-7xl mx-auto px-6 relative z-10 space-y-16">
-
-        {/* --- STADIO 1: DISCOVERY --- */}
+        
+        {/* 1. RADAR MISSIONI CON SELETTORE */}
         <section>
-          <SectionHeader 
-            title="1. Radar Missioni" 
-            icon={Radar} 
-            colorClass="text-yellow-400" 
-            bgClass="bg-yellow-400/10"
+          <SectionHeader title="1. Radar Missioni" icon={Radar} colorClass={`text-${huntUI.color}-400`} bgClass={`bg-${huntUI.color}-400/10`} 
             rightElement={
-                <button 
-                    onClick={handleHunt} 
-                    disabled={isHunting}
-                    className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-bold tracking-wide transition-all shadow-lg ${isHunting ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white hover:shadow-orange-500/20 active:scale-95'}`}
-                >
-                    {isHunting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                    {isHunting ? 'SCANNING...' : 'AVVIA CACCIA'}
-                </button>
+                <div className="flex flex-col items-end gap-3">
+                    {/* SELETTORE MODALITÀ */}
+                    <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                        <button onClick={() => setHuntMode('daily')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'daily' ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' : 'text-gray-500 hover:text-white'}`}>Daily</button>
+                        <button onClick={() => setHuntMode('weekly')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'weekly' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-gray-500 hover:text-white'}`}>Weekly</button>
+                        <button onClick={() => setHuntMode('monthly')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'monthly' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' : 'text-gray-500 hover:text-white'}`}>Monthly</button>
+                    </div>
+                    
+                    {/* BOTTONE AVVIO */}
+                    <button 
+                        onClick={handleHunt} 
+                        disabled={isHunting}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold tracking-wide transition-all shadow-xl active:scale-95 w-full justify-center
+                        ${isHunting ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
+                          huntMode === 'weekly' ? 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-blue-500/20' :
+                          huntMode === 'monthly' ? 'bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 text-white shadow-purple-500/20' :
+                          'bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white shadow-orange-500/20'
+                        }`}
+                    >
+                        {isHunting ? <Loader2 className="w-4 h-4 animate-spin" /> : <huntUI.icon className="w-4 h-4" />}
+                        {isHunting ? 'SCANNING...' : huntUI.label}
+                    </button>
+                </div>
             }
           />
-          
           <div className="grid grid-cols-1 gap-4">
             {pendingMissions.length === 0 ? (
-              <GlassCard className="p-12 flex flex-col items-center justify-center text-center border-dashed border-gray-800">
-                <div className="w-16 h-16 rounded-full bg-gray-800/50 flex items-center justify-center mb-4 animate-pulse">
-                  <Activity className="w-8 h-8 text-gray-600" />
-                </div>
-                <p className="text-gray-500 text-lg mb-2">Nessun segnale rilevato.</p>
-                <p className="text-gray-600 text-sm">Premi "Avvia Caccia" per scansionare il mercato (Upwork, Fiverr, etc).</p>
-              </GlassCard>
+                <div className="p-12 text-center border-2 border-dashed border-gray-800 rounded-3xl opacity-50"><p className="text-gray-500">Radar Inattivo. Seleziona una modalità e avvia la caccia.</p></div>
             ) : (
-              pendingMissions.map((mission, idx) => (
-                <div key={mission.id} className="animate-in fade-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
-                  <MissionDiscoveryCard mission={mission} onDevelop={handleDevelop} loading={loadingId === mission.id} />
-                </div>
-              ))
+                pendingMissions.map((mission, idx) => (
+                    <div key={mission.id} className="animate-in fade-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
+                        <MissionDiscoveryCard mission={mission} onDevelop={handleDevelop} loading={loadingId === mission.id} />
+                    </div>
+                ))
             )}
           </div>
         </section>
 
-        {/* --- STADIO 2: DEVELOPMENT --- */}
-        <section className="relative group">
+        {/* 2. LABORATORIO TATTICO */}
+        <section>
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8">
             <SectionHeader title="2. Laboratorio Tattico" icon={Cpu} colorClass="text-indigo-400" bgClass="bg-indigo-500/10" />
-            
-            <div className="relative w-full md:w-96 z-20">
-              <select 
-                value={selectedDevMissionId} 
-                onChange={(e) => setSelectedDevMissionId(e.target.value)}
-                className="w-full bg-[#0a0a0c] border border-gray-700 text-white text-sm rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 block p-3 pr-10 appearance-none shadow-xl transition-all hover:border-gray-600 cursor-pointer"
-                disabled={developedMissions.length === 0}
-              >
-                {developedMissions.length === 0 && <option>In attesa di sviluppo...</option>}
-                {developedMissions.map(m => (
-                  <option key={m.id} value={m.id}>{m.title.substring(0, 50)}...</option>
-                ))}
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-indigo-500">
-                <ChevronDown className="w-4 h-4" />
-              </div>
-            </div>
+            <div className="relative w-full md:w-96 z-20"><select value={selectedDevMissionId} onChange={(e) => setSelectedDevMissionId(e.target.value)} className="w-full bg-[#0a0a0c] border border-gray-700 text-white text-sm rounded-xl block p-3 pr-10 shadow-xl" disabled={developedMissions.length === 0}>{developedMissions.map(m => (<option key={m.id} value={m.id}>{m.title.substring(0, 50)}...</option>))}</select></div>
           </div>
-
           <GlassCard className="min-h-[600px] flex flex-col">
             {currentDevMission ? (
-              <>
-                <div className="p-6 bg-gradient-to-r from-gray-900/80 to-gray-900/40 border-b border-white/5 flex justify-between items-start md:items-center gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 tracking-wider">STRATEGY READY</span>
-                      {currentDevMission.platform && <span className="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-400 border border-gray-700">{currentDevMission.platform}</span>}
-                    </div>
-                    <h3 className="text-xl font-bold text-white leading-tight">{currentDevMission.title}</h3>
-                    <p className="text-sm text-gray-400 mt-1 flex items-center gap-2">
-                      <Briefcase className="w-3 h-3" /> {currentDevMission.company_name}
-                    </p>
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <ActionButton onClick={() => handleReject(currentDevMission.id)} icon={XCircle} variant="danger" />
-                    <div className="h-8 w-px bg-gray-800" />
-                    <ActionButton onClick={() => handleAccept(currentDevMission.id)} icon={CheckCircle} variant="success" />
-                  </div>
+              <div className="p-8 flex-1 overflow-y-auto space-y-8 custom-scrollbar">
+                <div className="flex justify-between items-center"><h3 className="text-xl font-bold text-white">{currentDevMission.title}</h3>{currentDevMission.source_url && <a href={currentDevMission.source_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-indigo-400 hover:text-white text-xs font-bold uppercase tracking-widest bg-[#13151a] px-3 py-1 rounded border border-gray-700 hover:border-indigo-500 transition-all"><ExternalLink className="w-3 h-3" /> Link Diretto</a>}</div>
+                <div className="grid lg:grid-cols-2 gap-8">
+                    <div className="space-y-3"><Label text="Protocollo Candidatura" /><div className="bg-black/40 p-5 rounded-xl border border-white/5 font-mono text-xs text-gray-300 whitespace-pre-wrap">{currentDevMission.final_deliverable_json?.deliverable_content}</div></div>
+                    <div className="space-y-3"><Label text="Asset Bonus" /><div className="bg-emerald-900/5 p-5 rounded-xl border border-emerald-500/10 font-mono text-xs text-emerald-100/90 whitespace-pre-wrap">{currentDevMission.final_deliverable_json?.bonus_material_content}</div></div>
                 </div>
-
-                <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar relative">
-                  
-                  <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-900/20 to-purple-900/20 border border-indigo-500/20 p-6">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-                    <h4 className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-widest mb-3">
-                      <Sparkles className="w-4 h-4" /> Strategic Insight
-                    </h4>
-                    <p className="text-indigo-100 text-sm leading-relaxed font-medium">
-                      {currentDevMission.final_deliverable_json?.strategy_brief}
-                    </p>
-                  </div>
-
-                  <div className="grid lg:grid-cols-2 gap-8">
-                    <div className="space-y-3">
-                      <Label text="Protocollo Candidatura" />
-                      <div className="bg-black/40 backdrop-blur rounded-xl border border-white/5 p-5 font-mono text-xs text-gray-300 leading-relaxed whitespace-pre-wrap shadow-inner hover:border-white/10 transition-colors">
-                        {currentDevMission.final_deliverable_json?.deliverable_content}
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-3">
-                      <Label text={`Asset Bonus: ${currentDevMission.final_deliverable_json?.bonus_material_title || 'N/A'}`} />
-                      <div className="bg-emerald-900/5 backdrop-blur rounded-xl border border-emerald-500/10 p-5 font-mono text-xs text-emerald-100/90 leading-relaxed whitespace-pre-wrap shadow-inner hover:border-emerald-500/20 transition-colors">
-                        {currentDevMission.final_deliverable_json?.bonus_material_content}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gray-900/50 rounded-2xl p-6 border border-white/5">
-                     <Label text="Sequenza Operativa" />
-                     <div className="mt-4 space-y-3">
-                        {currentDevMission.final_deliverable_json?.execution_steps?.map((step: string, i: number) => (
-                          <div key={i} className="flex items-center gap-4 group">
-                            <span className="w-6 h-6 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-[10px] font-bold text-gray-400 group-hover:bg-indigo-600 group-hover:border-indigo-500 group-hover:text-white transition-colors">
-                              {i+1}
-                            </span>
-                            <span className="text-sm text-gray-400 group-hover:text-gray-200 transition-colors">{step}</span>
-                          </div>
-                        ))}
-                     </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-700 gap-4">
-                <div className="w-20 h-20 rounded-full bg-gray-900 flex items-center justify-center border border-gray-800">
-                  <Lock className="w-8 h-8 opacity-20" />
-                </div>
-                <p className="font-medium tracking-wide text-sm uppercase">Modulo Tattico Inattivo</p>
+                <div className="flex gap-4 justify-end pt-4 border-t border-white/5"><ActionButton onClick={() => handleReject(currentDevMission.id)} icon={XCircle} variant="danger" /><ActionButton onClick={() => handleAccept(currentDevMission.id)} icon={CheckCircle} variant="success" /></div>
               </div>
-            )}
+            ) : <div className="flex flex-col items-center justify-center h-full text-gray-700"><Lock className="w-8 h-8 opacity-20" /><p className="text-sm uppercase tracking-widest">Modulo Inattivo</p></div>}
           </GlassCard>
         </section>
 
-        {/* --- STADIO 3: EXECUTION --- */}
+        {/* 3. ESECUZIONE & DELIVERY */}
         <section>
           <SectionHeader title="3. Esecuzione & Delivery" icon={Briefcase} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" />
-
           <div className="space-y-12">
-            {activeMissions.length === 0 && (
-               <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-3xl opacity-50">
-                 <p className="text-gray-500">Il laboratorio è vuoto. Accetta una missione per iniziare.</p>
-               </div>
-            )}
-
+            {activeMissions.length === 0 && <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-3xl opacity-50"><p className="text-gray-500">Nessuna missione in corso.</p></div>}
             {activeMissions.map(mission => (
-              <GlassCard key={mission.id} className="p-8 border-l-4 border-l-emerald-500">
-                <div className="flex flex-col md:flex-row items-center justify-between mb-8 pb-6 border-b border-white/5">
-                  <div>
-                    <h3 className="text-2xl font-bold text-white">{mission.title}</h3>
-                    <p className="text-gray-500 text-sm mt-1">@ {mission.company_name}</p>
-                  </div>
-                  <div className="mt-4 md:mt-0">
-                    {mission.status === 'completed' ? (
-                      <span className="px-4 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold tracking-wider shadow-[0_0_10px_rgba(16,185,129,0.2)]">
-                        MISSION COMPLETE
-                      </span>
-                    ) : (
-                      <span className="px-4 py-1.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 text-xs font-bold tracking-wider animate-pulse">
-                        ACTIVE EXECUTION
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-col xl:flex-row items-stretch gap-6">
-                  <div className="flex-1 flex flex-col group">
-                    <Label text="Input Cliente (Prompt)" />
-                    <div className="relative flex-1">
-                      <textarea
-                        disabled={mission.status === 'completed'}
-                        defaultValue={mission.client_requirements || ""}
-                        onChange={(e) => setClientInput(e.target.value)}
-                        placeholder="Incolla qui la risposta del cliente..."
-                        className="w-full h-full min-h-[300px] bg-black/40 border border-gray-800 rounded-2xl p-6 text-sm text-gray-300 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none resize-none transition-all group-hover:border-gray-700/50 placeholder:text-gray-700"
-                      />
-                      <div className="absolute bottom-4 right-4 text-[10px] text-gray-600 uppercase font-bold tracking-widest pointer-events-none">Input Area</div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col items-center justify-center px-4 py-6 xl:py-0">
-                    {executingId === mission.id ? (
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-indigo-500 blur-xl opacity-20 animate-pulse" />
-                        <Loader2 className="w-10 h-10 text-indigo-500 animate-spin relative z-10" />
-                      </div>
-                    ) : (
-                      <button 
-                        onClick={() => handleExecuteWork(mission.id)}
-                        disabled={mission.status === 'completed'}
-                        className={`group relative p-5 rounded-full transition-all duration-500 ${
-                          mission.status === 'completed' 
-                            ? 'bg-gray-800 cursor-not-allowed opacity-50' 
-                            : 'bg-gradient-to-br from-indigo-600 to-purple-600 hover:scale-110 hover:shadow-[0_0_30px_rgba(99,102,241,0.4)]'
-                        }`}
-                      >
-                         <ArrowRight className={`w-6 h-6 text-white transition-transform duration-300 ${mission.status !== 'completed' && 'group-hover:translate-x-1'}`} />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex-1 flex flex-col">
-                     <Label text="Final Deliverable (Output)" />
-                     <div className={`flex-1 rounded-2xl p-6 relative overflow-hidden min-h-[300px] transition-all duration-500 ${
-                       mission.status === 'completed' 
-                         ? 'bg-emerald-950/10 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.05)]' 
-                         : 'bg-black/40 border border-gray-800 border-dashed'
-                     }`}>
-                        {mission.final_work_content ? (
-                          <pre className="text-xs text-emerald-100 font-mono whitespace-pre-wrap h-full overflow-y-auto custom-scrollbar leading-relaxed">
-                            {mission.final_work_content}
-                          </pre>
-                        ) : (
-                          <div className="h-full flex flex-col items-center justify-center text-gray-700">
-                            <Cpu className="w-12 h-12 mb-4 opacity-20" />
-                            <span className="text-xs font-medium uppercase tracking-widest opacity-50">Waiting for processing...</span>
-                          </div>
-                        )}
-                     </div>
-                  </div>
-                </div>
-              </GlassCard>
+              <ActiveMissionCard key={mission.id} mission={mission} onExecute={handleExecuteProxy} />
             ))}
           </div>
         </section>
@@ -462,70 +427,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-function MissionDiscoveryCard({ mission, onDevelop, loading }: { mission: Mission, onDevelop: (id: string) => void, loading: boolean }) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <div className={`relative bg-[#13151a] border border-gray-800/50 rounded-xl transition-all duration-300 overflow-hidden group ${isOpen ? 'shadow-2xl ring-1 ring-indigo-500/30' : 'hover:border-gray-700'}`}>
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-transparent via-indigo-500/0 to-transparent group-hover:via-indigo-500 transition-all duration-500" />
-
-      <div className="p-5 flex items-center justify-between relative z-10">
-        <div className="flex-1 cursor-pointer pr-4" onClick={() => setIsOpen(!isOpen)}>
-          <div className="flex items-center gap-3 mb-2">
-             <h3 className="font-bold text-white text-lg group-hover:text-indigo-200 transition-colors">{mission.title}</h3>
-             <span className="text-[10px] bg-gray-800 border border-gray-700 px-2 py-0.5 rounded text-gray-400 uppercase tracking-wide">{mission.company_name}</span>
-             {mission.platform && <span className="text-[10px] bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 px-2 py-0.5 rounded uppercase tracking-wide">{mission.platform}</span>}
-          </div>
-          <div className="text-sm text-gray-500 flex gap-6 font-mono">
-             <span className="flex items-center gap-1"><span className="text-emerald-400">€{mission.reward_amount}</span>/hr</span>
-             <span className="flex items-center gap-1 text-indigo-400">Match: {mission.match_score}%</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4">
-           <button onClick={() => setIsOpen(!isOpen)} className="text-gray-600 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/5">
-             {isOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-           </button>
-           <button 
-             onClick={() => onDevelop(mission.id)}
-             disabled={loading}
-             className="relative overflow-hidden bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg shadow-indigo-900/20 active:scale-95 disabled:opacity-50 disabled:scale-100 group/btn"
-             title="Avvia Sviluppo"
-           >
-             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play size={20} fill="currentColor" className="relative z-10" />}
-             <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300" />
-           </button>
-        </div>
-      </div>
-
-      <div className={`grid transition-all duration-500 ease-in-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-        <div className="overflow-hidden">
-          <div className="px-5 pb-5 pt-0">
-             <div className="pt-4 border-t border-gray-800/50 grid md:grid-cols-2 gap-6 text-sm">
-                <div className="bg-indigo-900/10 p-4 rounded-lg border border-indigo-500/10">
-                  <span className="block font-bold text-indigo-400 text-xs uppercase tracking-wider mb-2">Analisi AI</span>
-                  <p className="text-indigo-100 leading-relaxed">{mission.analysis_notes}</p>
-                </div>
-                <div className="p-4 rounded-lg border border-gray-800/50">
-                  <span className="block font-bold text-gray-500 text-xs uppercase tracking-wider mb-2">Source Brief</span>
-                  <p className="text-gray-400 line-clamp-3 leading-relaxed italic">{mission.description}</p>
-                  <div className="mt-4 pt-4 border-t border-gray-700/50">
-                    <a href={mission.source_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300 text-xs font-bold uppercase tracking-wider transition-colors">
-                        Vai alla Fonte ({mission.platform || 'Direct'}) <ArrowRight className="w-3 h-3" />
-                    </a>
-                  </div>
-                </div>
-             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const Label = ({ text }: { text: string }) => (
-  <h4 className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] mb-3 pl-1 border-l-2 border-indigo-500/50">
-    {text}
-  </h4>
-);
