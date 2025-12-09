@@ -5,11 +5,11 @@ import path from 'path';
 import { db } from '../infra/db';
 
 // ==================================================================================
-// ⚙️ CONFIGURAZIONE MODELLI AI
+// ⚙️ CONFIGURAZIONE MODELLI AI (AGGIORNATA)
 // ==================================================================================
 const AI_CONFIG = {
   openai: {
-    // Il "Braccio" Operativo
+    // Il "Braccio" Operativo - Modello più recente per massima precisione JSON
     model: 'gpt-5.1-chat-latest', 
   },
   gemini: {
@@ -62,27 +62,29 @@ export class MissionDeveloperService {
       : path.join(process.cwd(), 'src', 'knowledge_base');
   }
 
-  // Helper per caricare i prompt dai file .md con fallback robusto
+  // Helper per caricare i prompt dai file .md in modo robusto
   private loadPrompt(filename: string): string {
     try {
       let filePath = path.join(this.kbPath, filename);
-      // Tenta diversi percorsi per robustezza (root, developer subdir)
+      
+      // Tentativi di fallback per trovare il file (Root vs Subdir)
       if (!fs.existsSync(filePath)) {
+          // Prova nella sottocartella 'developer'
           filePath = path.join(this.kbPath, 'developer', filename);
       }
       if (!fs.existsSync(filePath)) {
-          // Fallback root development
+          // Fallback assoluto src/knowledge_base (Dev Mode)
           filePath = path.join(process.cwd(), 'src', 'knowledge_base', filename);
       }
       if (!fs.existsSync(filePath)) {
-          // Fallback subdir development
+          // Fallback assoluto src/knowledge_base/developer (Dev Mode)
           filePath = path.join(process.cwd(), 'src', 'knowledge_base', 'developer', filename);
       }
       
       return fs.readFileSync(filePath, 'utf-8');
     } catch (e) {
       console.warn(`⚠️ Prompt file mancante: ${filename}`);
-      return ""; 
+      return ""; // Fallback gestito nel codice
     }
   }
 
@@ -92,6 +94,7 @@ export class MissionDeveloperService {
   public async developStrategy(missionId: string): Promise<FinalMissionPackage> {
     console.log(`\n⚙️ [DEV] Sviluppo Strategia: ${missionId}`);
     
+    // 1. Recupero Missione e Profilo
     const mission = await db.selectFrom('missions').selectAll().where('id', '=', missionId).executeTakeFirst();
     if (!mission) throw new Error("Missione non trovata");
 
@@ -104,21 +107,24 @@ export class MissionDeveloperService {
     const userSkills = JSON.stringify(profileData.keySkillsToAcquire || []);
     const userAdvantages = JSON.stringify(profileData.unfairAdvantages || []);
 
-    // --- SELEZIONE FILE PROMPT BASATA SUL TIPO ---
-    let candFile = 'prompt_1_gpt_developer_init.md'; // Default Daily
-    let bonusFile = 'prompt_10_bonus_material_init.md'; // Default Daily
+    // 2. SELEZIONE FILE PROMPT BASATA SUL TIPO (ROUTING)
+    // Default: Daily (Quick Win)
+    let candFile = 'prompt_1_gpt_developer_init.md'; 
+    let bonusFile = 'prompt_10_bonus_material_init.md'; 
 
     if (mission.type === 'weekly') {
         candFile = 'prompt_1_weekly_candidacy.md';
         bonusFile = 'prompt_10_weekly_bonus.md';
-        console.log("👉 Using WEEKLY Protocol");
+        console.log("👉 Using WEEKLY Protocol (Sprint Leader)");
     } else if (mission.type === 'monthly') {
         candFile = 'prompt_1_monthly_candidacy.md';
         bonusFile = 'prompt_10_monthly_bonus.md';
-        console.log("👉 Using MONTHLY Protocol");
+        console.log("👉 Using MONTHLY Protocol (Strategic Partner)");
+    } else {
+        console.log("👉 Using DAILY Protocol (Problem Solver)");
     }
 
-    // A. Generazione Candidatura
+    // A. Generazione Candidatura (Cover Letter)
     let promptCandidacy = this.loadPrompt(candFile) || "Generate professional proposal.";
     promptCandidacy = promptCandidacy
       .replace('[MISSION_TITLE]', mission.title)
@@ -129,19 +135,19 @@ export class MissionDeveloperService {
 
     const approvedCandidacy = await this.simpleGptCall(promptCandidacy);
 
-    // B. Generazione Bonus Asset
+    // B. Generazione Bonus Asset (Checklist/Roadmap)
     let promptBonus = this.loadPrompt(bonusFile) || "Generate bonus asset.";
     promptBonus = promptBonus
       .replace('[MISSION_TITLE]', mission.title)
       .replace('[MISSION_DESCRIPTION]', mission.description || 'N/A')
-      .replace('[USER_SKILLS]', userSkills); // FIX: Ora passiamo le skill anche qui
+      .replace('[USER_SKILLS]', userSkills); // Importante: Passare le skill anche al bonus
 
     const approvedBonus = await this.simpleGptCall(promptBonus);
 
-    // C. Packaging JSON
+    // C. Packaging JSON (Formatta tutto per il Frontend)
     const finalPackage = await this.gptPackageWithRetry(approvedCandidacy, approvedBonus, mission);
     
-    // D. Salvataggio
+    // D. Salvataggio nel Database
     await db.updateTable('missions')
       .set({
         status: 'developed', 
@@ -155,7 +161,7 @@ export class MissionDeveloperService {
   }
 
   // ==================================================================================
-  // 2️⃣ LAYOUT 3: ESECUZIONE STEP-BY-STEP (CON MEMORIA & LOOP DI QUALITÀ)
+  // 2️⃣ LAYOUT 3: ESECUZIONE STEP-BY-STEP (CHAT MODE)
   // ==================================================================================
   public async executeChatStep(missionId: string, userId: string, userInput: string, attachments: any[] = []): Promise<string> {
       console.log(`\n💬 [EXEC] Chat Step (Mode: ${AI_CONFIG.openai.model}) per Missione: ${missionId}`);
@@ -189,13 +195,13 @@ export class MissionDeveloperService {
       if (attachments && attachments.length > 0) {
           inputWithAttachments += `\n\n--- [SYSTEM: USER ATTACHMENTS] ---\n`;
           attachments.forEach((file, idx) => {
-              // Tronchiamo i file testuali enormi per sicurezza, ma GPT-5.1 ha ampia context window
+              // Tronchiamo i file testuali enormi per sicurezza
               const contentPreview = file.content.length > 50000 ? file.content.substring(0, 50000) + "... [TRUNCATED]" : file.content;
               inputWithAttachments += `FILE ${idx+1} (${file.name}):\n${contentPreview}\n----------------\n`;
           });
       }
 
-      // 4. RECUPERO MEMORIA STRATEGICA (Pacing + Promessa Iniziale)
+      // 4. RECUPERO MEMORIA STRATEGICA (Pacing Guide)
       const pacingGuide = this.loadPrompt('guide_execution_pacing.md');
       
       let promiseContext = "";
@@ -227,9 +233,7 @@ export class MissionDeveloperService {
       `;
 
       // 6. ESECUZIONE DEL LOOP DI QUALITÀ (GPT -> Gemini -> GPT)
-      // Passiamo gli ultimi 12 messaggi per un contesto solido
       const recentHistory = history.slice(-12); 
-      
       const finalResponse = await this.runExecutionLoop(systemPrompt, recentHistory, inputWithAttachments);
 
       // 7. AGGIORNAMENTO DB
@@ -274,9 +278,9 @@ export class MissionDeveloperService {
           // A. GPT Genera (Esecutore)
           try {
               const res = await this.openai.chat.completions.create({
-                  model: AI_CONFIG.openai.model, 
+                  model: AI_CONFIG.openai.model, // gpt-5.1-chat-latest
                   messages: messagesForGPT as any,
-                  temperature: 0.3 
+                  temperature: 0.3 // Preciso ma creativo
               });
               currentDraft = res.choices[0].message.content || "Errore generazione.";
           } catch (e: any) {
@@ -324,6 +328,7 @@ export class MissionDeveloperService {
                   messagesForGPT.push({ role: "assistant", content: currentDraft });
                   messagesForGPT.push({ role: "system", content: `CRITICAL FEEDBACK FROM AUDITOR: "${auditJson.critique}". \n\nRE-WRITE the previous response to address this feedback perfectly.` });
               } else {
+                  // Fallback se il JSON di Gemini è rotto
                   approved = true; 
               }
 
@@ -366,16 +371,16 @@ export class MissionDeveloperService {
        });
        return JSON.parse(res.choices[0].message.content || "{}");
     } catch(e) {
-        // Fallback in caso di errore
+        // Fallback di sicurezza in caso di errore di parsing JSON
         return { 
             deliverable_content: candidacy, 
-            bonus_material_title: "Bonus Asset", 
+            bonus_material_title: "Bonus Asset Strategico", 
             bonus_material_content: bonus, 
-            strategy_brief: "Packaging fallito.", 
-            execution_steps: ["1. Invia Candidatura", "2. Allega Bonus", "3. Segui il piano"], 
-            estimated_impact: "N/A", 
+            strategy_brief: "Strategia pronta. Bonus generato.", 
+            execution_steps: ["1. Copia la candidatura", "2. Allega il bonus", "3. Invia email"], 
+            estimated_impact: "Alto", 
             is_immediate_task: true, 
-            bonus_file_name: "bonus.txt" 
+            bonus_file_name: "Bonus_Asset.pdf" 
         };
     }
   }
