@@ -27,7 +27,7 @@ interface Mission {
   final_work_content?: string;
   client_requirements?: string;
   platform?: string;
-  type?: 'daily' | 'weekly' | 'monthly'; // Aggiunto il tipo
+  type?: 'daily' | 'weekly' | 'monthly'; // Supporto per i nuovi tipi
 }
 
 interface AttachedFile {
@@ -43,9 +43,11 @@ interface AttachedFile {
 const readFileContent = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      // Immagini -> Base64 (per GPT Vision in futuro)
       if (file.type.startsWith('image/')) {
           reader.readAsDataURL(file);
       } else {
+          // Documenti/Codice -> Testo Semplice
           reader.readAsText(file);
       }
       reader.onload = () => resolve(reader.result as string);
@@ -103,11 +105,12 @@ const Label = ({ text }: { text: string }) => (<h4 className="flex items-center 
 
 
 // ==================================================================================
-// 4. COMPONENTI SPECIFICI
+// 4. COMPONENTI SPECIFICI (Cards)
 // ==================================================================================
 
-// --- CARD MISSIONE ATTIVA (Layout 3) ---
+// --- CARD MISSIONE ATTIVA (Layout 3 - Esecuzione) ---
 function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute: (id: string, text: string, files: AttachedFile[]) => Promise<void> }) {
+  // Stato locale isolato per ogni card
   const [localInput, setLocalInput] = useState(mission.client_requirements || "");
   const [localAttachments, setLocalAttachments] = useState<AttachedFile[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -128,17 +131,21 @@ function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute
   };
 
   const triggerExecution = async () => {
+    // Validazione: Deve esserci testo OPPURE file OPPURE un requisito precedente
     const hasText = localInput && localInput.trim().length > 0;
     const hasFiles = localAttachments.length > 0;
 
     if (!hasText && !hasFiles && !mission.client_requirements) {
-        alert("Inserisci istruzioni o allega file per procedere.");
+        alert("Inserisci un comando o allega un file per procedere.");
         return;
     }
 
     setIsExecuting(true);
     await onExecute(mission.id, localInput, localAttachments);
     setIsExecuting(false);
+    
+    // Non cancelliamo l'input per facilitare la "rifinitura" del prompt (Chat style)
+    setLocalAttachments([]); // I file invece li togliamo dopo l'invio
   };
 
   return (
@@ -154,25 +161,27 @@ function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute
                 <span className={`px-3 py-1 rounded text-[10px] uppercase font-bold tracking-widest border 
                     ${mission.type === 'weekly' ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' : 
                       mission.type === 'monthly' ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' : 
-                      'bg-emerald-900/20 text-emerald-400 border-emerald-500/30'}`}>
-                    {mission.type} MISSION
+                      'bg-yellow-900/20 text-yellow-400 border-yellow-500/30'}`}>
+                    {mission.type}
                 </span>
             )}
         </div>
       </div>
       
       <div className="flex flex-col xl:flex-row items-stretch gap-6">
-        {/* INPUT */}
+        {/* INPUT AREA */}
         <div className="flex-1 flex flex-col group relative">
-          <Label text="Input Cliente & Materiale" />
+          <Label text="Input Cliente & Materiale (Chat)" />
           <div className="relative flex-1 bg-black/40 border border-gray-800 rounded-2xl overflow-hidden focus-within:border-indigo-500 transition-colors flex flex-col">
             <textarea 
               disabled={isExecuting} 
               value={localInput}
               onChange={(e) => setLocalInput(e.target.value)}
-              placeholder="Incolla le istruzioni del cliente..." 
-              className="w-full flex-1 bg-transparent border-none p-6 text-sm text-gray-300 outline-none resize-none placeholder:text-gray-700" 
+              placeholder="Scrivi qui la tua richiesta o allega file di supporto..." 
+              className="w-full flex-1 bg-transparent border-none p-6 text-sm text-gray-300 outline-none resize-none placeholder:text-gray-700 font-mono" 
             />
+            
+            {/* AREA ALLEGATI */}
             <div className="p-4 border-t border-gray-800 bg-[#0a0a0c]/50 flex items-center justify-between">
                 <div className="flex flex-wrap gap-2">
                   {localAttachments.map((file, i) => (
@@ -192,20 +201,29 @@ function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute
           </div>
         </div>
 
-        {/* ACTION BUTTON */}
+        {/* TASTO ESECUZIONE (Sempre attivo per Loop) */}
         <div className="flex flex-col items-center justify-center px-4">
           {isExecuting ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" /> : 
-            <button onClick={triggerExecution} className="p-5 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 hover:scale-110 shadow-lg shadow-indigo-500/30 transition-all active:scale-95" title="Esegui / Rigenera">
+            <button onClick={triggerExecution} className="p-5 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 hover:scale-110 shadow-lg shadow-indigo-500/30 transition-all active:scale-95" title="Invia all'AI">
               <ArrowRight className="w-6 h-6 text-white" />
             </button>
           }
         </div>
 
-        {/* OUTPUT */}
+        {/* OUTPUT AREA */}
         <div className="flex-1 flex flex-col">
-          <Label text="Output Finale (Rigenerabile)" />
+          <Label text="Risposta AI (Latest)" />
           <div className={`flex-1 rounded-2xl p-6 relative overflow-hidden min-h-[300px] transition-all duration-500 ${mission.final_work_content ? 'bg-emerald-950/10 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.05)]' : 'bg-black/40 border border-gray-800 border-dashed'}`}>
-            {mission.final_work_content ? <pre className="text-xs text-emerald-100 font-mono whitespace-pre-wrap h-full overflow-y-auto custom-scrollbar leading-relaxed">{mission.final_work_content}</pre> : <div className="h-full flex items-center justify-center text-gray-700"><Cpu className="w-12 h-12 mb-4 opacity-20" /><span className="text-xs font-medium uppercase tracking-widest opacity-50">In attesa di input...</span></div>}
+            {mission.final_work_content ? (
+                <pre className="text-xs text-emerald-100 font-mono whitespace-pre-wrap h-full overflow-y-auto custom-scrollbar leading-relaxed">
+                    {mission.final_work_content}
+                </pre>
+            ) : (
+                <div className="h-full flex flex-col items-center justify-center text-gray-700">
+                    <Cpu className="w-12 h-12 mb-4 opacity-20" />
+                    <span className="text-xs font-medium uppercase tracking-widest opacity-50">In attesa di input...</span>
+                </div>
+            )}
           </div>
         </div>
       </div>
@@ -213,28 +231,77 @@ function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute
   );
 }
 
-// --- CARD DISCOVERY (Layout 1) ---
+// --- CARD DISCOVERY (Layout 1 - Radar) ---
 function MissionDiscoveryCard({ mission, onDevelop, loading }: any) {
     const [isOpen, setIsOpen] = useState(false);
+
     return (
-      <div className="relative bg-[#13151a] border border-gray-800/50 rounded-xl overflow-hidden mb-4">
-        <div className="p-5 flex justify-between items-center cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
-            <div className="flex items-center gap-3">
-                <div className={`w-2 h-12 rounded-full ${mission.type === 'monthly' ? 'bg-purple-500' : mission.type === 'weekly' ? 'bg-blue-500' : 'bg-emerald-500'}`}></div>
+      <div className={`relative bg-[#13151a] border border-gray-800/50 rounded-xl overflow-hidden mb-4 transition-all ${isOpen ? 'ring-1 ring-indigo-500/50 shadow-2xl' : 'hover:border-gray-700'}`}>
+        
+        {/* HEADER VISIBILE */}
+        <div className="p-5 flex justify-between items-start cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
+            <div className="flex items-start gap-4">
+                {/* Visual Indicator Type */}
+                <div className={`mt-1 w-1.5 h-10 rounded-full ${mission.type === 'monthly' ? 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]' : mission.type === 'weekly' ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]'}`}></div>
+                
                 <div>
-                    <h3 className="text-white font-bold">{mission.title}</h3>
-                    <p className="text-xs text-gray-500">{mission.company_name} • {mission.platform} • {mission.type ? mission.type.toUpperCase() : 'DAILY'}</p>
+                    <h3 className="text-white font-bold text-lg leading-tight group-hover:text-indigo-300 transition-colors">{mission.title}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[10px] text-gray-400 bg-gray-800 px-2 py-0.5 rounded border border-gray-700 uppercase tracking-wide">{mission.company_name}</span>
+                        <span className="text-[10px] text-gray-500 uppercase tracking-wide">• {mission.platform} • {mission.type ? mission.type.toUpperCase() : 'DAILY'}</span>
+                    </div>
                 </div>
             </div>
-            <div className="flex items-center gap-4"><span className="text-emerald-400 text-sm font-mono">€{mission.reward_amount}</span><button onClick={(e) => { e.stopPropagation(); onDevelop(mission.id); }} disabled={loading} className="bg-indigo-600 p-2 rounded-lg text-white hover:bg-indigo-500">{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}</button></div>
+
+            <div className="flex flex-col items-end gap-2">
+                <span className="text-emerald-400 font-mono font-bold text-lg">€{mission.reward_amount}</span>
+                <button 
+                    onClick={(e) => { e.stopPropagation(); onDevelop(mission.id); }} 
+                    disabled={loading} 
+                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-lg shadow-indigo-900/20 active:scale-95 disabled:opacity-50"
+                >
+                    {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
+                    {loading ? 'WAIT' : 'START'}
+                </button>
+            </div>
         </div>
-        {isOpen && <div className="p-5 pt-0 text-sm text-gray-400 border-t border-gray-800">{mission.analysis_notes}</div>}
+
+        {/* CONTENUTO ESPANSO (DESCRIZIONE + LINK) */}
+        <div className={`grid transition-all duration-300 ease-in-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+            <div className="overflow-hidden">
+                <div className="px-5 pb-5 pt-0 border-t border-gray-800/50">
+                    
+                    {/* Descrizione Completa */}
+                    <div className="mt-4 mb-4">
+                        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Briefing Missione</span>
+                        <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{mission.description}</p>
+                    </div>
+
+                    {/* Analisi AI e Link Fonte */}
+                    <div className="flex items-center justify-between bg-black/20 p-3 rounded-lg border border-white/5">
+                        <p className="text-xs text-indigo-300 italic">"{mission.analysis_notes}"</p>
+                        
+                        {mission.source_url && (
+                            <a 
+                                href={mission.source_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-white transition-colors bg-white/5 px-3 py-1.5 rounded hover:bg-white/10"
+                                onClick={(e) => e.stopPropagation()} 
+                            >
+                                <ExternalLink className="w-3 h-3" /> VAI ALLA FONTE
+                            </a>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
       </div>
     );
 }
 
 // ==================================================================================
-// 5. MAIN DASHBOARD
+// 5. MAIN DASHBOARD PAGE
 // ==================================================================================
 
 export default function Dashboard() {
@@ -245,7 +312,7 @@ export default function Dashboard() {
   const [selectedDevMissionId, setSelectedDevMissionId] = useState<string>("");
   const [mounted, setMounted] = useState(false);
   
-  // NUOVO STATO: MODALITÀ DI CACCIA
+  // SELETTORE MODALITÀ DI CACCIA
   const [huntMode, setHuntMode] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
   useEffect(() => setMounted(true), []);
@@ -279,7 +346,7 @@ export default function Dashboard() {
     if (isHunting) return;
     setIsHunting(true);
     
-    // Logica di routing in base al bottone selezionato
+    // Routing dinamico in base al Tab selezionato
     let endpoint = '/missions/hunt';
     if (huntMode === 'weekly') endpoint = '/missions/hunt/weekly';
     if (huntMode === 'monthly') endpoint = '/missions/hunt/monthly';
@@ -320,14 +387,14 @@ export default function Dashboard() {
       await fetchMissions();
       showNotification("Lavoro completato dall'AI!", 'success');
     } catch (e) { 
-        showNotification("Errore esecuzione. Token OpenAI o Limite Step?", 'error'); 
+        showNotification("Errore esecuzione. Verifica stato missione.", 'error'); 
         throw e; 
     } 
   };
 
   const currentDevMission = developedMissions.find(m => m.id === selectedDevMissionId) || developedMissions[0];
 
-  // Configurazione UI dinamica in base al modo
+  // Config UI dinamica
   const getHuntUI = () => {
       switch(huntMode) {
           case 'weekly': return { color: 'blue', label: 'CACCIA SETTIMANALE (SPRINT)', icon: Calendar };
@@ -351,19 +418,19 @@ export default function Dashboard() {
 
       <main className="max-w-7xl mx-auto px-6 relative z-10 space-y-16">
         
-        {/* 1. RADAR MISSIONI CON SELETTORE */}
+        {/* 1. RADAR MISSIONI CON TAB */}
         <section>
           <SectionHeader title="1. Radar Missioni" icon={Radar} colorClass={`text-${huntUI.color}-400`} bgClass={`bg-${huntUI.color}-400/10`} 
             rightElement={
                 <div className="flex flex-col items-end gap-3">
-                    {/* SELETTORE MODALITÀ */}
+                    {/* TAB SELECTION */}
                     <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
                         <button onClick={() => setHuntMode('daily')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'daily' ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' : 'text-gray-500 hover:text-white'}`}>Daily</button>
                         <button onClick={() => setHuntMode('weekly')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'weekly' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-gray-500 hover:text-white'}`}>Weekly</button>
                         <button onClick={() => setHuntMode('monthly')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'monthly' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' : 'text-gray-500 hover:text-white'}`}>Monthly</button>
                     </div>
                     
-                    {/* BOTTONE AVVIO */}
+                    {/* BUTTON AVVIO */}
                     <button 
                         onClick={handleHunt} 
                         disabled={isHunting}
@@ -382,7 +449,7 @@ export default function Dashboard() {
           />
           <div className="grid grid-cols-1 gap-4">
             {pendingMissions.length === 0 ? (
-                <div className="p-12 text-center border-2 border-dashed border-gray-800 rounded-3xl opacity-50"><p className="text-gray-500">Radar Inattivo. Seleziona una modalità e avvia la caccia.</p></div>
+                <div className="p-12 text-center border-2 border-dashed border-gray-800 rounded-3xl opacity-50"><p className="text-gray-500">Radar Inattivo. Avvia la caccia.</p></div>
             ) : (
                 pendingMissions.map((mission, idx) => (
                     <div key={mission.id} className="animate-in fade-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
@@ -413,7 +480,7 @@ export default function Dashboard() {
           </GlassCard>
         </section>
 
-        {/* 3. ESECUZIONE & DELIVERY */}
+        {/* 3. ESECUZIONE & DELIVERY (CHAT MODE) */}
         <section>
           <SectionHeader title="3. Esecuzione & Delivery" icon={Briefcase} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" />
           <div className="space-y-12">

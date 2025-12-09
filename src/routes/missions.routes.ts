@@ -8,7 +8,7 @@ export const missionsRouter = Router();
 const perplexityService = new PerplexityService();
 const developerService = new MissionDeveloperService();
 
-// --- HELPER PER GESTIRE ERRORI E QUOTE ---
+// --- HELPER PER ERRORI ---
 const handleQuotaError = (error: any, res: any) => {
     console.error("Errore Caccia:", error.message);
     if (error.message.includes("Quota")) {
@@ -17,7 +17,7 @@ const handleQuotaError = (error: any, res: any) => {
     res.status(500).json({ error: "Errore interno durante la caccia." });
 };
 
-// --- HELPER PER RECUPERARE MISSIONI ---
+// --- HELPER RECUPERO MISSIONI ---
 async function fetchNewMissions(userId: string) {
     return await db.selectFrom('missions')
         .selectAll()
@@ -43,7 +43,7 @@ missionsRouter.post('/hunt', authMiddleware, async (req: any, res) => {
   } catch (error: any) { handleQuotaError(error, res); }
 });
 
-// 2. CACCIA WEEKLY (Ecco la rotta che mancava/dava 404)
+// 2. CACCIA WEEKLY (QUESTA E' QUELLA CHE TI DAVA 404)
 missionsRouter.post('/hunt/weekly', authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user.userId;
@@ -58,7 +58,7 @@ missionsRouter.post('/hunt/weekly', authMiddleware, async (req: any, res) => {
   } catch (error: any) { handleQuotaError(error, res); }
 });
 
-// 3. CACCIA MONTHLY (Ecco l'altra rotta mancante)
+// 3. CACCIA MONTHLY (ANCHE QUESTA MANCAVA)
 missionsRouter.post('/hunt/monthly', authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user.userId;
@@ -73,7 +73,7 @@ missionsRouter.post('/hunt/monthly', authMiddleware, async (req: any, res) => {
   } catch (error: any) { handleQuotaError(error, res); }
 });
 
-// 4. LISTA
+// 4. ALTRE ROTTE STANDARD
 missionsRouter.get('/my-missions', authMiddleware, async (req: any, res) => {
   try {
     const limit = Number(req.query.limit) || 20;
@@ -82,7 +82,6 @@ missionsRouter.get('/my-missions', authMiddleware, async (req: any, res) => {
   } catch (e) { res.status(500).json({ error: "Errore lista" }); }
 });
 
-// 5. DEVELOP
 missionsRouter.post('/:id/develop', authMiddleware, async (req: any, res) => {
   try {
     const result = await developerService.developStrategy(req.params.id);
@@ -90,13 +89,11 @@ missionsRouter.post('/:id/develop', authMiddleware, async (req: any, res) => {
   } catch (e) { res.status(500).json({ error: "Errore develop" }); }
 });
 
-// 6. EXECUTE (CHAT MODE)
 missionsRouter.post('/:id/execute', authMiddleware, async (req: any, res) => {
   try {
     const { clientRequirements, attachments } = req.body;
     const userId = req.user.userId;
-    // Input di default se vuoto
-    const userInput = (clientRequirements && clientRequirements.trim().length > 0) ? clientRequirements : "Procedi con il prossimo step.";
+    const userInput = (clientRequirements && clientRequirements.trim().length > 0) ? clientRequirements : "Procedi.";
     
     const result = await developerService.executeChatStep(req.params.id, userId, userInput, attachments || []);
     res.json({ success: true, data: result });
@@ -106,11 +103,11 @@ missionsRouter.post('/:id/execute', authMiddleware, async (req: any, res) => {
   }
 });
 
-// 7. STATUS & REJECT
 missionsRouter.post('/:id/reject', authMiddleware, async (req: any, res) => {
     await db.updateTable('missions').set({ status: 'rejected' }).where('id', '=', req.params.id).execute();
     res.json({ success: true });
 });
+
 missionsRouter.patch('/:id/status', authMiddleware, async (req: any, res) => {
     await db.updateTable('missions').set({ status: req.body.status }).where('id', '=', req.params.id).execute();
     res.json({ success: true });
