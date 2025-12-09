@@ -11,16 +11,16 @@ interface UsersTable {
   id: Generated<string>;
   email: string;
   password_hash: string;
-  status: string; // <--- AGGIUNTO: Lo scheduler lo cercava
+  status: string;
   created_at: Generated<Date>;
 }
 
-// Tabella Chat Manager (Memoria della chat)
+// Tabella Chat Manager (Memoria della chat - Legacy, ma teniamola per sicurezza)
 interface MissionThreadsTable {
   id: Generated<string>;
   mission_id: string;
   user_id: string;
-  role: 'user' | 'assistant' | 'system'; // <--- CORRETTO: Era 'sender', ma il codice usa 'role'
+  role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: Generated<Date>;
 }
@@ -35,7 +35,7 @@ interface UserAIProfileTable {
   updated_at: Generated<Date>;
 }
 
-// Tabella Missioni
+// Tabella Missioni (AGGIORNATA CON I NUOVI CAMPI)
 interface MissionsTable {
   id: Generated<string>;
   user_id: string | null;
@@ -64,6 +64,12 @@ interface MissionsTable {
   remote_type: string | null;
   skills_required: any;
   experience_level: string | null;
+
+  // --- NUOVI CAMPI PER GESTIONE TEMPO E MEMORIA (Daily/Weekly/Monthly) ---
+  type: 'daily' | 'weekly' | 'monthly' | null;  // <--- AGGIUNTO
+  command_count: number | null;                 // <--- AGGIUNTO
+  max_commands: number | null;                  // <--- AGGIUNTO
+  conversation_history: any;                    // <--- AGGIUNTO (JSONB)
 }
 
 // Interfaccia Globale del DB
