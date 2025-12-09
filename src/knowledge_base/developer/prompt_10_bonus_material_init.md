@@ -7,9 +7,9 @@
 ---
 
 ### 1. INPUT DATA
-**Mission:** {{MISSION_TITLE}}
-**Context:** {{MISSION_DESCRIPTION}}
-**User Skills:** {{USER_SKILLS}}
+**Mission:** [MISSION_TITLE]
+**Context:** [MISSION_DESCRIPTION]
+**User Skills:** [USER_SKILLS]
 
 ---
 
