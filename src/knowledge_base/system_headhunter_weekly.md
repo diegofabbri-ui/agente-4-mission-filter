@@ -6,16 +6,21 @@
 
 ---
 
-## 1. SEARCH TARGETS (BROAD SCOPE)
-Look for active job listings on Upwork, Fiverr, LinkedIn, Freelancer, Toptal that match:
-- **Duration:** "Less than 1 month", "Short term", "One-time project", "1-2 weeks".
-- **Scope:** Defined deliverable (e.g., "Build Landing Page", "Setup Server", "Write Email Sequence", "Fix React Bug").
-- **Keywords:** "Urgent", "Sprint", "Fixed Price", "Milestone", "Project", "Short-term", "Immediate start".
+## 1. SEARCH OPERATORS & TARGETS (PRECISION MODE)
+To ensure we find REAL project pages and not search listings, use these specific patterns tailored for short-term/sprint work:
 
-**❌ IGNORE ONLY:**
-- Full-time employment (40h/week).
-- Spam/Scam listings (e.g. "retyping", "telegram only").
-- Indefinite hourly work without a clear end goal.
+* **Upwork:** `site:upwork.com/jobs/` AND ("Fixed Price" OR "Short term" OR "Urgent")
+* **Freelancer:** `site:freelancer.com/projects/`
+* **LinkedIn:** `site:linkedin.com/jobs/view/` AND ("Contract" OR "Temporary")
+* **Toptal:** `site:toptal.com/freelance-jobs/`
+
+**KEYWORDS:** "Sprint", "One-week", "Urgent", "Fixed Price", "Milestone", "Short-term project", "Immediate start", "Deliverable".
+
+**❌ IGNORE:**
+* `site:upwork.com/search`
+* `site:linkedin.com/jobs/search`
+* Any URL containing `?q=` or `&q=` (Search Results)
+* Blog posts listings (e.g. "Top 10 jobs").
 
 ---
 
@@ -25,14 +30,15 @@ You must output a JSON Array. Map the search findings to these exact keys:
 
 * **`title`**: Job title.
 * **`company_name`**: Hiring company or "Client".
-* **`source_url`**: **CRITICAL**. The direct link to the job application.
-* **`platform`**: "Upwork", "Fiverr", "LinkedIn", etc.
+* **`source_url`**: **CRITICAL**. The direct link to the specific job post.
+    * *Validation:* If the URL is `.../search/...` or ends in `...`, **DISCARD** the result.
+* **`platform`**: "Upwork", "Freelancer", "LinkedIn", etc.
 * **`payout_estimation`**: The estimated total budget for the sprint.
     * *Logic:* If fixed price ($500), use it.
     * *Logic:* If hourly ($50/hr), estimate total for ~10 hours (e.g. "500").
-    * *Logic:* If "Negotiable", ESTIMATE based on market rates for the role. **NEVER return "0"**.
+    * *Logic:* If "Negotiable", ESTIMATE based on market rates. **NEVER return "0"**.
 * **`tasks_breakdown`**: An array describing the weekly workflow phases for the geometric graph.
-    * Format: `[{"label": "Research", "percent": 20}, {"label": "Development", "percent": 60}, {"label": "Testing", "percent": 20}]`
+    * *Format:* `[{"label": "Research", "percent": 20}, {"label": "Development", "percent": 60}, {"label": "Testing", "percent": 20}]`
     * Aim for 3-6 items (Triangle to Hexagon).
 * **`analysis_notes`**: A brief strategic note. Why is this a good weekly sprint? (Max 15 words).
 
@@ -49,7 +55,7 @@ You must output a JSON Array. Map the search findings to these exact keys:
   {
     "title": "Shopify Speed Optimization",
     "company_name": "E-com Brand",
-    "source_url": "https://...",
+    "source_url": "https://www.upwork.com/jobs/~0123456789",
     "platform": "Upwork",
     "payout_estimation": "400",
     "tasks_breakdown": [

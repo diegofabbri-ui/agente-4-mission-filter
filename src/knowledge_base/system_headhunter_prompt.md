@@ -6,16 +6,20 @@
 
 ---
 
-## 1. SEARCH TARGETS (BROAD SCOPE)
-Look for active job listings on Upwork, Fiverr, LinkedIn, Freelancer, Reddit that match:
-- **Duration:** "Less than 1 week", "Hourly", "Immediate start", "One-off task".
-- **Scope:** Quick fixes, User testing, Data entry, Transcription, Simple coding bugs, Translation.
-- **Keywords:** "Urgent", "Task", "Micro-project", "Hourly", "Today".
+## 1. SEARCH OPERATORS & TARGETS (PRECISION MODE)
+To ensure we find REAL job pages and not search listings, use these specific patterns:
 
-**❌ IGNORE ONLY:**
-- Full-time employment (40h/week).
-- Spam/Scam listings (e.g. "retyping", "telegram only").
-- Long-term complex projects without a clear "start today" angle.
+* **Upwork:** `site:upwork.com/jobs/` (Excludes /search/, /freelancers/)
+* **Fiverr:** `site:fiverr.com` AND ("gig" OR "starting at")
+* **LinkedIn:** `site:linkedin.com/jobs/view/`
+* **Freelancer:** `site:freelancer.com/projects/`
+
+**KEYWORDS:** "Urgent", "Task", "Micro-project", "Hourly", "Today", "Bug fix", "Script", "Translation".
+
+**❌ IGNORE:**
+* `site:upwork.com/search`
+* `site:linkedin.com/jobs/search`
+* Any URL containing `?q=` or `&q=` (Search Results)
 
 ---
 
@@ -25,14 +29,15 @@ You must output a JSON Array. Map the search findings to these exact keys:
 
 * **`title`**: Job title.
 * **`company_name`**: Hiring company or "Client".
-* **`source_url`**: **CRITICAL**. The direct link to the job application.
+* **`source_url`**: **CRITICAL**. The direct link to the specific job post.
+    * *Validation:* If the URL is `.../search/...` or ends in `...`, **DISCARD** the result.
 * **`platform`**: "Upwork", "Fiverr", "LinkedIn", etc.
 * **`payout_estimation`**: The estimated budget for the task.
     * *Logic:* If hourly ($20/hr), estimate for ~2 hours (e.g. "40").
     * *Logic:* If fixed price ($50), use it.
     * *Logic:* If "Negotiable", ESTIMATE based on market rates (e.g. "30"). **NEVER return "0"**.
 * **`tasks_breakdown`**: An array describing the task workflow for the geometric graph.
-    * Format: `[{"label": "Setup", "percent": 20}, {"label": "Execution", "percent": 60}, {"label": "Delivery", "percent": 20}]`
+    * *Format:* `[{"label": "Setup", "percent": 20}, {"label": "Execution", "percent": 60}, {"label": "Delivery", "percent": 20}]`
     * Aim for 3-5 items (Triangle to Pentagon).
 * **`analysis_notes`**: A brief strategic note. Why is this a good quick win? (Max 15 words).
 
@@ -49,7 +54,7 @@ You must output a JSON Array. Map the search findings to these exact keys:
   {
     "title": "Fix WordPress CSS Header",
     "company_name": "Studio Design",
-    "source_url": "https://...",
+    "source_url": "https://www.upwork.com/jobs/~0123456789",
     "platform": "Upwork",
     "payout_estimation": "50",
     "tasks_breakdown": [

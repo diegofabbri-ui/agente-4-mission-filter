@@ -24,8 +24,7 @@ export class PerplexityService {
       if (fs.existsSync(filePath)) {
         return fs.readFileSync(filePath, 'utf-8');
       }
-      console.warn(`⚠️ Warning: File non trovato: ${filePath}`);
-      return "";
+      return ""; 
     } catch (e) {
       console.warn(`⚠️ Warning: Errore lettura file ${filename}.`);
       return ""; 
@@ -39,20 +38,16 @@ export class PerplexityService {
     
     console.log(`🚀 [HUNTER] Avvio caccia in modalità: ${mode.toUpperCase()}`);
 
-    // 1. SELEZIONE DEL MANUALE (PROMPT) E FILTRI BUDGET
+    // 1. SELEZIONE DEL MANUALE (PROMPT)
     let systemInstruction = "";
-    let budgetContext = "CRITICAL: IGNORE jobs with 'Unpaid'. ONLY return jobs with a budget.";
-
+    
     if (mode === 'weekly') {
         systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
-        budgetContext += " TARGET: Short-term projects, sprints, fixed price.";
     } else if (mode === 'monthly') {
         systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
-        budgetContext += " TARGET: Monthly Retainers, Long-term contracts.";
     } else {
         // Default: Daily
         systemInstruction = this.loadTextFile('system_headhunter_prompt.md'); 
-        budgetContext += ` TARGET: Hourly tasks, micro-projects.`;
     }
 
     // Fallback se il file prompt non viene letto
@@ -60,18 +55,25 @@ export class PerplexityService {
         systemInstruction = "You are an expert headhunter. Find active freelance jobs suitable for the requested duration. Return strictly JSON array.";
     }
 
-    // 2. COSTRUZIONE DELLA QUERY
-    const userContext = `
+    // 2. COSTRUZIONE DELLA QUERY CON OPERATORI AVANZATI
+    // Questi operatori aiutano Perplexity a trovare pagine specifiche ed evitare liste generiche
+    const searchContext = `
       CANDIDATE PROFILE:
       - Role: ${clientProfile.dreamRole}
       - Skills: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
       - Interests: ${(clientProfile.interests || []).join(', ')}
-      - Budget Constraints: ${budgetContext}
+
+      SEARCH STRATEGY (USE THESE OPERATORS):
+      - site:upwork.com/jobs/ (Avoid /search/)
+      - site:fiverr.com (Look for specific Gigs)
+      - site:linkedin.com/jobs/view/ (Specific Job IDs)
+      - site:freelancer.com/projects/
+      - site:weworkremotely.com/remote-jobs/
     `;
 
     const searchMessages = [
       { role: 'system', content: systemInstruction },
-      { role: 'user', content: `${userContext}\n\nTASK: Find 5 REAL, ACTIVE job listings on Upwork, Fiverr, LinkedIn, or Toptal matching the '${mode}' duration.\n\nMANDATORY: Return valid JSON Array. Include 'url' and 'tasks_breakdown'.` }
+      { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, ACTIVE job listings matching the '${mode}' duration.\n\nMANDATORY RULES:\n1. 'source_url' MUST be a direct link to the job post.\n2. 'payout_estimation' MUST be a number string (e.g. "150"). Estimate if missing.\n3. Include 'tasks_breakdown' array for the graph.\n\nOUTPUT: JSON Array ONLY.` }
     ];
 
     try {
@@ -98,17 +100,17 @@ export class PerplexityService {
 
     } catch (error: any) {
       console.error("❌ Errore Perplexity API:", error.response?.data || error.message);
-      // Non lanciamo errore bloccante per non crashare il frontend, ma logghiamo
+      // Non lanciamo errore bloccante per non crashare il frontend
     }
   }
 
   // ==================================================================================
-  // 💾 PARSING E SALVATAGGIO (Gestisce Type, Max Commands e Filtro Prezzi)
+  // 💾 PARSING, VALIDAZIONE URL E SALVATAGGIO
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
       // --- FIX ROBUSTEZZA JSON ---
-      // Rimuoviamo blocchi markdown
+      // Rimuoviamo blocchi markdown e testo extra
       let cleanContent = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
       
       // Estraiamo SOLO la parte tra le parentesi quadre [...]
@@ -116,7 +118,7 @@ export class PerplexityService {
       const lastBracket = cleanContent.lastIndexOf(']');
       
       if (firstBracket === -1 || lastBracket === -1) {
-          console.error("⚠️ JSON Array non trovato nella risposta AI. Raw:", rawJson.substring(0, 100));
+          console.error("⚠️ JSON Array non trovato nella risposta AI.");
           return;
       }
       
@@ -140,28 +142,34 @@ export class PerplexityService {
       // Inserimento nel Database
       for (const m of missions) {
         
-        // 1. Parsing Prezzo
-        let reward = this.parseReward(m.payout_estimation || m.budget || m.reward || m.price);
+        // 1. VALIDAZIONE URL (CRITICO)
+        const finalUrl = m.source_url || m.url || "#";
         
+        if (!this.isValidJobUrl(finalUrl)) {
+            console.log(`Skipping invalid URL: ${finalUrl}`);
+            continue;
+        }
+
+        // 2. Parsing Prezzo
+        let reward = this.parseReward(m.payout_estimation || m.budget || m.reward || m.price);
         // Se il reward è 0 (es. "Negotiable"), mettiamo un valore placeholder simbolico (10)
         // per permettere all'utente di vederla e decidere.
         if (reward <= 0) reward = 10;
 
-        // 2. Controllo duplicati (basato su URL)
-        const finalUrl = m.source_url || m.url || "#";
+        // 3. Controllo duplicati (basato su URL)
         const exists = await db.selectFrom('missions')
             .select('id')
             .where('source_url', '=', finalUrl)
             .executeTakeFirst();
 
-        if (!exists && finalUrl !== "#") {
+        if (!exists) {
             await db.insertInto('missions')
               .values({
                 user_id: userId,
                 title: m.title || "Nuova Opportunità",
                 description: m.description || m.summary || "Nessuna descrizione fornita.",
                 source_url: finalUrl,
-                source: m.platform || m.source || "Web",
+                source: this.detectPlatform(finalUrl),
                 reward_amount: reward,
                 // Stima ore fissa in base al tipo se non fornita
                 estimated_duration_hours: m.hours || (type === 'weekly' ? 5 : (type === 'monthly' ? 40 : 1)),
@@ -174,7 +182,7 @@ export class PerplexityService {
                 conversation_history: JSON.stringify([]), // Inizializza memoria vuota
                 
                 // Metadati extra e grafico
-                platform: m.platform || "General",
+                platform: this.detectPlatform(finalUrl),
                 company_name: m.company_name || m.company || "Confidenziale",
                 match_score: m.match_score || 85,
                 analysis_notes: m.analysis_notes || `Caccia ${type} completata.`,
@@ -192,8 +200,37 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🧮 UTILS
+  // 🧮 UTILS DI VALIDAZIONE
   // ==================================================================================
+
+  // Decide se l'URL è un vero annuncio di lavoro o spazzatura
+  private isValidJobUrl(url: string): boolean {
+      if (!url || url.length < 10 || url === "#") return false;
+      if (!url.startsWith('http')) return false;
+
+      // Filtra URL di ricerca generici
+      const badPatterns = ['/search', 'jobs?q=', 'login', 'signup', 'browse', '...'];
+      if (badPatterns.some(p => url.includes(p))) return false;
+
+      // Filtra URL troncati dall'AI
+      if (url.endsWith('.')) return false;
+
+      // (Opzionale) Controlla pattern specifici per piattaforme note
+      // Questo riduce drasticamente i 404
+      if (url.includes('upwork.com') && !url.includes('/jobs/')) return false; 
+      if (url.includes('linkedin.com') && !url.includes('/jobs/view/')) return false;
+
+      return true;
+  }
+
+  private detectPlatform(url: string): string {
+      if (url.includes('upwork')) return 'Upwork';
+      if (url.includes('fiverr')) return 'Fiverr';
+      if (url.includes('linkedin')) return 'LinkedIn';
+      if (url.includes('freelancer')) return 'Freelancer';
+      if (url.includes('toptal')) return 'Toptal';
+      return 'Web';
+  }
 
   // Helper robusto per estrarre numeri dalle stringhe budget
   private parseReward(rewardString: string | number): number {
@@ -203,7 +240,6 @@ export class PerplexityService {
     // Gestione range "$50-$100" -> prende la media (75)
     if (typeof rewardString === 'string' && rewardString.includes('-')) {
         const parts = rewardString.split('-');
-        // Rimuove tutto ciò che non è numero o punto
         const n1 = parseFloat(parts[0].replace(/[^0-9.]/g, ''));
         const n2 = parseFloat(parts[1].replace(/[^0-9.]/g, ''));
         
@@ -212,7 +248,7 @@ export class PerplexityService {
         }
     }
 
-    // Gestione singola cifra "$500" o "500 USD" o "€500"
+    // Gestione singola cifra "$500" o "500 USD"
     const clean = rewardString.replace(/[^0-9.]/g, '');
     return parseFloat(clean) || 0;
   }
