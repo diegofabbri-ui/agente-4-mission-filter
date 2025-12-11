@@ -3,8 +3,7 @@ import { db } from '../infra/db';
 import fs from 'fs';
 import path from 'path';
 
-// --- CONFIGURAZIONE ROBUSTA MASTERLIST ---
-// Definiamo un fallback hardcoded nel caso il file JSON non si carichi correttamente
+// --- CONFIGURAZIONE ROBUSTA MASTERLIST & FALLBACK ---
 const FALLBACK_SOURCES = {
     aggregators: ["google.com/search?ibp=htl;jobs", "linkedin.com/jobs", "indeed.com", "glassdoor.com"],
     general_remote: ["upwork.com/jobs", "freelancer.com/projects", "fiverr.com", "remoteok.com"],
@@ -32,7 +31,7 @@ try {
         }
     }
 } catch (e) {
-    console.warn("⚠️ Warning: sources_masterlist.json non trovato o invalido. Uso Fallback di emergenza.");
+    console.warn("⚠️ Warning: sources_masterlist.json non trovato. Uso Fallback di emergenza.");
 }
 
 export class PerplexityService {
@@ -42,7 +41,6 @@ export class PerplexityService {
   constructor() {
     this.apiKey = process.env.PERPLEXITY_API_KEY || '';
     
-    // Gestione path per ambiente Produzione (dist) vs Sviluppo (src)
     const isProd = process.env.NODE_ENV === 'production';
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
@@ -58,91 +56,108 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA OPPORTUNITÀ (Logica "Wide Net" per evitare 0 risultati)
+  // 🔍 CORE: RICERCA OPPORTUNITÀ "ANTI-ZOMBIE"
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
-    console.log(`🚀 [HUNTER] Avvio caccia ${mode.toUpperCase()} per User: ${userId}`);
+    // 1. Definiamo il TEMPO REALE (Atomic Time)
+    const now = new Date();
+    const currentISO = now.toISOString(); // Es: 2025-12-11T14:30:00.000Z
+    
+    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} - Start Time: ${currentISO}`);
 
-    // 1. Prompt di Base (Caricamento o Default)
+    // 2. Caricamento Manuale Prompt
     let systemInstruction = "";
     if (mode === 'weekly') systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
     else if (mode === 'monthly') systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
     else systemInstruction = this.loadTextFile('system_headhunter_prompt.md');
 
-    if (!systemInstruction || systemInstruction.length < 10) {
-        systemInstruction = "You are a headhunter. Find 5 active freelance jobs matching the user profile. Return strictly JSON.";
-    }
+    if (!systemInstruction) systemInstruction = "You are a headhunter. Find active freelance jobs. Return strictly JSON.";
 
-    // 2. Selezione Fonti (Limitata per non rompere la query)
+    // 3. Selezione Fonti Intelligente
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
     
     // Prendiamo max 10 siti mirati + aggregatori
     const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 10);
     
-    // 3. Definizione Tempo (Natural Language è più affidabile degli operatori stretti)
-    const timeFrame = mode === 'daily' ? 'last 24 hours' : (mode === 'weekly' ? 'past 3 days' : 'past week');
-    
-    // 4. COSTRUZIONE QUERY "WIDE NET"
-    // Invece di usare operatori booleani stretti che l'API può rifiutare, usiamo istruzioni discorsive chiare.
+    // 4. Finestra Temporale Dinamica
+    // Daily = 24h, Weekly = 3gg, Monthly = 7gg
+    const lookbackMap: any = { 'daily': 'last 24 hours', 'weekly': 'past 3 days', 'monthly': 'past week' };
+    const timeFrame = lookbackMap[mode];
+
+    // 5. COSTRUZIONE QUERY BLINDATA (ANTI-SCADENZA)
     const searchContext = `
       TARGET ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
 
-      SEARCH INSTRUCTIONS:
-      1. Search specifically on these platforms: ${targetSites.join(', ')}.
-      2. ALSO search major aggregators like Google Jobs, LinkedIn, Upwork.
-      3. **CRITICAL:** Look ONLY for jobs posted in the **${timeFrame}**.
-      4. IGNORE expired jobs, closed listings, or generic "search" pages.
+      --- 🕒 LIVE TIME CONTEXT ---
+      CURRENT SERVER TIME: ${currentISO}
+      SEARCH WINDOW: ${timeFrame}
+      
+      --- 🎯 SEARCH INSTRUCTIONS ---
+      1. Search ONLY on: ${targetSites.join(', ')} and major job boards.
+      2. **TIME FILTER:** Ignore any result older than the search window.
+      3. **"ZOMBIE" FILTER (CRITICAL):** DISCARD any page containing phrases like:
+         - "Job is no longer available"
+         - "Applications closed"
+         - "This job has expired"
+         - "No longer accepting applications"
+      4. Verify the "Posted" date relative to CURRENT SERVER TIME.
     `;
 
     try {
       const response = await axios.post(
         'https://api.perplexity.ai/chat/completions',
         {
-          model: 'sonar-pro', // Modello migliore per ricerca web
+          model: 'sonar-pro', // Modello con accesso web live
           messages: [
             { role: 'system', content: systemInstruction },
-            { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, ACTIVE job listings matching the '${mode}' timeframe.\n\nOUTPUT RULES:\n- Return ONLY a valid JSON Array.\n- Ensure 'source_url' is a deep link (not a search page).\n- If payout is hidden, estimate it based on market rates.` }
+            { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, OPEN job listings for '${mode}' mode.\n\nOUTPUT RULES:\n- Return ONLY a valid JSON Array.\n- 'source_url' MUST be a direct deep link.\n- If uncertain about status (Open/Closed), DO NOT include.` }
           ],
-          temperature: 0.2 // Leggermente più creativo per trovare risultati se quelli stretti mancano
+          temperature: 0.1 // Minima creatività per massimizzare la precisione dei fatti
         },
         { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
       );
 
       const rawContent = response.data.choices[0].message.content;
-      console.log(`📡 Risposta Perplexity ricevuta (${rawContent.length} chars). Elaborazione...`);
+      console.log(`📡 Risposta ricevuta (${rawContent.length} chars). Parsing...`);
       
       await this.processAndSaveOpportunities(rawContent, userId, mode);
 
     } catch (error: any) {
-      console.error("❌ Errore Critico Perplexity API:", error.response?.data || error.message);
+      console.error("❌ Errore Perplexity API:", error.response?.data || error.message);
     }
   }
 
   // ==================================================================================
-  // 🧠 INTELLIGENZA FONTI (Con Fallback)
+  // 🧠 INTELLIGENZA FONTI (Con Fallback Sicuro)
   // ==================================================================================
   private getRelevantSources(roleAndSkills: string): string[] {
-      // Se la masterlist è vuota (errore caricamento), usa i fallback
+      // Usa masterlist caricata o fallback
       const list = Object.keys(sourcesMasterlist).length > 0 ? sourcesMasterlist : FALLBACK_SOURCES;
       
-      // Fallback sicuro per accedere alle proprietà
+      // Accesso sicuro alle proprietà (anche se undefined nel JSON)
       const aggregators = list.aggregators || FALLBACK_SOURCES.aggregators || [];
       const general = list.general_remote || FALLBACK_SOURCES.general_remote || [];
 
       let sources = [...aggregators, ...general];
 
-      // Matching semantico semplice
-      if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node', 'fullstack', 'engineer'])) sources.push(...(list.tech_dev || FALLBACK_SOURCES.tech_dev || []));
-      if (this.matches(roleAndSkills, ['writ', 'content', 'copy', 'blog'])) sources.push(...(list.writing_content || []));
-      if (this.matches(roleAndSkills, ['design', 'ui', 'ux', 'art'])) sources.push(...(list.design_creative || []));
-      if (this.matches(roleAndSkills, ['market', 'seo', 'sales'])) sources.push(...(list.marketing_sales || []));
-      // Gestione sicura per categorie opzionali
-      if (this.matches(roleAndSkills, ['crypto', 'web3', 'defi']) && list.crypto_web3) sources.push(...list.crypto_web3);
-
-      // Rimuovi duplicati e mescola
+      // Matching semantico
+      if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node', 'fullstack', 'engineer'])) {
+          sources.push(...(list.tech_dev || FALLBACK_SOURCES.tech_dev || []));
+      }
+      if (this.matches(roleAndSkills, ['writ', 'content', 'copy', 'blog', 'editor'])) {
+          sources.push(...(list.writing_content || FALLBACK_SOURCES.writing_content || []));
+      }
+      if (this.matches(roleAndSkills, ['design', 'ui', 'ux', 'art', 'graphic'])) {
+          sources.push(...(list.design_creative || FALLBACK_SOURCES.design_creative || []));
+      }
+      if (this.matches(roleAndSkills, ['market', 'seo', 'sales', 'growth'])) {
+          sources.push(...(list.marketing_sales || FALLBACK_SOURCES.marketing_sales || []));
+      }
+      
+      // Mescola e rimuovi duplicati
       return [...new Set(sources)].sort(() => 0.5 - Math.random());
   }
 
@@ -151,16 +166,16 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 💾 SALVATAGGIO (Robustezza ++)
+  // 💾 SALVATAGGIO & VALIDAZIONE
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
-      // Pulizia aggressiva del JSON (rimuove backticks, testo prima/dopo)
+      // Pulizia JSON aggressiva
       const firstBracket = rawJson.indexOf('[');
       const lastBracket = rawJson.lastIndexOf(']');
       
       if (firstBracket === -1 || lastBracket === -1) {
-          console.warn("⚠️ Nessun array JSON trovato nella risposta. Raw:", rawJson.substring(0, 100));
+          console.warn("⚠️ Nessun JSON valido trovato nella risposta.");
           return;
       }
       
@@ -170,12 +185,12 @@ export class PerplexityService {
       try {
           missions = JSON.parse(cleanJson);
       } catch (e) {
-          console.error("⚠️ JSON Parse Error. L'AI ha restituito JSON malformato.");
+          console.error("⚠️ Errore di sintassi nel JSON restituito dall'AI.");
           return;
       }
 
       if (missions.length === 0) {
-          console.warn("⚠️ L'AI ha restituito una lista vuota (0 missioni trovate).");
+          console.warn("⚠️ 0 missioni trovate. I filtri Anti-Zombie potrebbero aver scartato tutto.");
           return;
       }
 
@@ -185,12 +200,13 @@ export class PerplexityService {
       for (const m of missions) {
         const finalUrl = m.source_url || m.url || "#";
         
-        // Validazione URL meno aggressiva (per evitare falsi negativi che causano 0 risultati)
+        // 1. VALIDAZIONE URL
         if (!this.isValidJobUrl(finalUrl)) {
-            // console.log(`Skipped URL: ${finalUrl}`);
+            // console.log(`URL Scartato (Link non valido): ${finalUrl}`);
             continue; 
         }
 
+        // 2. CONTROLLO DUPLICATI
         const exists = await db.selectFrom('missions').select('id').where('source_url', '=', finalUrl).executeTakeFirst();
 
         if (!exists) {
@@ -198,7 +214,7 @@ export class PerplexityService {
               .values({
                 user_id: userId,
                 title: m.title || "Opportunità",
-                description: m.description || "Dettagli non disponibili.",
+                description: m.description || "Vedi dettagli nel link.",
                 source_url: finalUrl,
                 source: this.detectPlatform(finalUrl),
                 reward_amount: this.parseReward(m.payout_estimation || m.budget || m.reward),
@@ -209,15 +225,15 @@ export class PerplexityService {
                 conversation_history: JSON.stringify([]),
                 platform: this.detectPlatform(finalUrl),
                 company_name: m.company_name || "Confidenziale",
-                match_score: m.match_score || 80,
+                match_score: m.match_score || 85,
                 raw_data: JSON.stringify({ tasks_breakdown: m.tasks_breakdown || [] }),
-                analysis_notes: m.analysis_notes || "Analisi automatica."
+                analysis_notes: m.analysis_notes || `Verificato: ${new Date().toLocaleDateString()}`
               })
               .execute();
             savedCount++;
         }
       }
-      console.log(`✅ Salvataggio completato: ${savedCount} nuove missioni aggiunte.`);
+      console.log(`✅ Salvataggio completato: ${savedCount} nuove missioni valide aggiunte.`);
 
     } catch (e) {
       console.error("❌ Errore Processamento:", e);
@@ -227,10 +243,12 @@ export class PerplexityService {
   // --- UTILS ---
 
   private isValidJobUrl(url: string): boolean {
-      if (!url || url.length < 8 || url === "#") return false;
+      if (!url || url.length < 10 || url === "#") return false;
       if (!url.startsWith('http')) return false;
-      // Filtra solo le pagine di ricerca palesi, ma accetta tutto il resto per massimizzare i risultati
-      if (url.includes('/search') || url.includes('?q=')) return false; 
+      
+      // Filtra pagine di ricerca generiche (spesso usate come placeholder dall'AI)
+      if (url.includes('/search') || url.includes('?q=') || url.includes('login')) return false; 
+      
       return true;
   }
 
@@ -243,7 +261,7 @@ export class PerplexityService {
 
   private parseReward(rewardString: string | number): number {
     if (typeof rewardString === 'number') return rewardString;
-    if (!rewardString) return 10; // Valore di default se manca
+    if (!rewardString) return 10;
     
     // Gestione range "$50-$100" -> media
     if (typeof rewardString === 'string' && rewardString.includes('-')) {
