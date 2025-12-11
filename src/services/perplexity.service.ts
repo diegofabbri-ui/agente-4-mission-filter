@@ -41,6 +41,7 @@ export class PerplexityService {
   constructor() {
     this.apiKey = process.env.PERPLEXITY_API_KEY || '';
     
+    // Gestione path per ambiente Produzione (dist) vs Sviluppo (src)
     const isProd = process.env.NODE_ENV === 'production';
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
@@ -56,15 +57,21 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA OPPORTUNITÀ "ANTI-ZOMBIE"
+  // 🔍 CORE: RICERCA OPPORTUNITÀ "ANTI-ZOMBIE" (REAL-TIME)
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
-    // 1. Definiamo il TEMPO REALE (Atomic Time)
+    // 1. CALCOLO TEMPO REALE (AL SECONDO)
     const now = new Date();
-    const currentISO = now.toISOString(); // Es: 2025-12-11T14:30:00.000Z
+    const currentISO = now.toISOString(); // Es: 2025-12-11T14:30:45.123Z
     
-    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} - Start Time: ${currentISO}`);
+    // Calcolo Data Limite (Lookback)
+    const lookbackDays = mode === 'daily' ? 1 : (mode === 'weekly' ? 3 : 7);
+    const pastDate = new Date();
+    pastDate.setDate(now.getDate() - lookbackDays);
+    const pastDateISO = pastDate.toISOString();
+
+    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Now: ${currentISO} | Limit: ${pastDateISO}`);
 
     // 2. Caricamento Manuale Prompt
     let systemInstruction = "";
@@ -74,36 +81,32 @@ export class PerplexityService {
 
     if (!systemInstruction) systemInstruction = "You are a headhunter. Find active freelance jobs. Return strictly JSON.";
 
-    // 3. Selezione Fonti Intelligente
+    // 3. Selezione Fonti Intelligente & Dinamica
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
     
-    // Prendiamo max 10 siti mirati + aggregatori
-    const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 10);
+    // Prendiamo max 12 siti mirati + aggregatori per non rompere la query
+    const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 12);
     
-    // 4. Finestra Temporale Dinamica
-    // Daily = 24h, Weekly = 3gg, Monthly = 7gg
-    const lookbackMap: any = { 'daily': 'last 24 hours', 'weekly': 'past 3 days', 'monthly': 'past week' };
-    const timeFrame = lookbackMap[mode];
-
-    // 5. COSTRUZIONE QUERY BLINDATA (ANTI-SCADENZA)
+    // 4. COSTRUZIONE QUERY BLINDATA (ANTI-SCADENZA)
     const searchContext = `
       TARGET ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
 
-      --- 🕒 LIVE TIME CONTEXT ---
+      --- 🕒 LIVE TIME CONTEXT (CRITICAL) ---
       CURRENT SERVER TIME: ${currentISO}
-      SEARCH WINDOW: ${timeFrame}
+      OLDEST ALLOWED DATE: ${pastDateISO}
       
       --- 🎯 SEARCH INSTRUCTIONS ---
-      1. Search ONLY on: ${targetSites.join(', ')} and major job boards.
-      2. **TIME FILTER:** Ignore any result older than the search window.
-      3. **"ZOMBIE" FILTER (CRITICAL):** DISCARD any page containing phrases like:
+      1. Search ONLY on these platforms: ${targetSites.join(', ')} and major job boards.
+      2. **TIME FILTER:** Ignore ANY result posted before ${pastDateISO}.
+      3. **"ZOMBIE" FILTER (KILL LIST):** DISCARD any page containing these phrases:
          - "Job is no longer available"
          - "Applications closed"
          - "This job has expired"
          - "No longer accepting applications"
-      4. Verify the "Posted" date relative to CURRENT SERVER TIME.
+         - "Filled"
+      4. **VERIFICATION:** Check the "Posted" date relative to CURRENT SERVER TIME. If it says "3 days ago" and mode is 'daily', DISCARD.
     `;
 
     try {
@@ -143,7 +146,7 @@ export class PerplexityService {
 
       let sources = [...aggregators, ...general];
 
-      // Matching semantico
+      // Matching semantico per nicchie
       if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node', 'fullstack', 'engineer'])) {
           sources.push(...(list.tech_dev || FALLBACK_SOURCES.tech_dev || []));
       }
@@ -171,19 +174,20 @@ export class PerplexityService {
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
       // Pulizia JSON aggressiva
-      const firstBracket = rawJson.indexOf('[');
-      const lastBracket = rawJson.lastIndexOf(']');
+      let cleanContent = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
+      const firstBracket = cleanContent.indexOf('[');
+      const lastBracket = cleanContent.lastIndexOf(']');
       
       if (firstBracket === -1 || lastBracket === -1) {
           console.warn("⚠️ Nessun JSON valido trovato nella risposta.");
           return;
       }
       
-      const cleanJson = rawJson.substring(firstBracket, lastBracket + 1);
+      const jsonStr = cleanContent.substring(firstBracket, lastBracket + 1);
       let missions = [];
       
       try {
-          missions = JSON.parse(cleanJson);
+          missions = JSON.parse(jsonStr);
       } catch (e) {
           console.error("⚠️ Errore di sintassi nel JSON restituito dall'AI.");
           return;
@@ -206,7 +210,11 @@ export class PerplexityService {
             continue; 
         }
 
-        // 2. CONTROLLO DUPLICATI
+        // 2. PARSING PREZZO
+        let reward = this.parseReward(m.payout_estimation || m.budget || m.reward);
+        if (reward <= 0) reward = 10;
+
+        // 3. CONTROLLO DUPLICATI
         const exists = await db.selectFrom('missions').select('id').where('source_url', '=', finalUrl).executeTakeFirst();
 
         if (!exists) {
@@ -217,7 +225,7 @@ export class PerplexityService {
                 description: m.description || "Vedi dettagli nel link.",
                 source_url: finalUrl,
                 source: this.detectPlatform(finalUrl),
-                reward_amount: this.parseReward(m.payout_estimation || m.budget || m.reward),
+                reward_amount: reward,
                 estimated_duration_hours: m.hours || (type === 'weekly' ? 10 : 2),
                 status: 'pending',
                 type: type,
@@ -247,7 +255,8 @@ export class PerplexityService {
       if (!url.startsWith('http')) return false;
       
       // Filtra pagine di ricerca generiche (spesso usate come placeholder dall'AI)
-      if (url.includes('/search') || url.includes('?q=') || url.includes('login')) return false; 
+      const badPatterns = ['/search', 'jobs?q=', 'login', 'signup', 'forgot-password'];
+      if (badPatterns.some(p => url.includes(p))) return false;
       
       return true;
   }
