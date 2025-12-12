@@ -9,7 +9,7 @@ import { db } from '../infra/db';
 // ==================================================================================
 const AI_CONFIG = {
   openai: {
-    model: 'gpt-5.1-chat-latest', // Modello Genius
+    model: 'gpt-5.1-chat-latest', // Genius Model
   },
   gemini: {
     model: 'gemini-2.5-pro',
@@ -71,12 +71,11 @@ export class MissionDeveloperService {
     }
   }
 
-  // --- HELPER: SOSTITUZIONE TAG GLOBALE (FIX CRITICO) ---
-  // Sostituisce TUTTE le occorrenze dei placeholder, non solo la prima.
+  // --- HELPER: SOSTITUZIONE TAG GLOBALE (FIX CRITICO PER I BONUS) ---
   private replaceTags(template: string, data: Record<string, string>): string {
       let result = template;
       for (const [key, value] of Object.entries(data)) {
-          // Usa split/join per "Replace All" sicuro
+          // Replace globale di tutte le occorrenze
           result = result.split(key).join(value || "N/A");
       }
       return result;
@@ -101,8 +100,7 @@ export class MissionDeveloperService {
     const userSkills = JSON.stringify(profileData.keySkillsToAcquire || []);
     const userAdvantages = JSON.stringify(profileData.unfairAdvantages || []);
 
-    // 2. Preparazione Mappa Dati (Il "Context Payload")
-    // Questa mappa viene iniettata OVUNQUE, garantendo che nessun prompt rimanga vuoto.
+    // 2. Mappa Dati Completa (Context Payload)
     const contextData = {
         '[MISSION_TITLE]': mission.title,
         '[MISSION_DESCRIPTION]': mission.description || "Nessuna descrizione fornita.",
@@ -113,20 +111,16 @@ export class MissionDeveloperService {
         '[PLATFORM]': mission.platform || "Web"
     };
 
-    // 3. Routing Prompt (Daily/Weekly/Monthly)
+    // 3. Routing Prompt
     let candFile = 'prompt_1_gpt_developer_init.md'; 
     let bonusFile = 'prompt_10_bonus_material_init.md'; 
 
     if (mission.type === 'weekly') {
         candFile = 'prompt_1_weekly_candidacy.md';
         bonusFile = 'prompt_10_weekly_bonus.md';
-        console.log("👉 Protocollo: WEEKLY (Sprint Leader)");
     } else if (mission.type === 'monthly') {
         candFile = 'prompt_1_monthly_candidacy.md';
         bonusFile = 'prompt_10_monthly_bonus.md';
-        console.log("👉 Protocollo: MONTHLY (Strategic Partner)");
-    } else {
-        console.log("👉 Protocollo: DAILY (Genius Fix)");
     }
 
     // A. Generazione Candidatura
@@ -134,14 +128,12 @@ export class MissionDeveloperService {
     const finalPromptCand = this.replaceTags(rawPromptCand, contextData);
     const approvedCandidacy = await this.simpleGptCall(finalPromptCand);
 
-    // B. Generazione Bonus Asset (ORA CON TUTTI I DATI)
-    // Prima falliva qui perché mancavano URL o Advantages nel replace manuale.
+    // B. Generazione Bonus Asset (FIX: Ora riceve i dati corretti)
     let rawPromptBonus = this.loadPrompt(bonusFile) || "Generate strategic bonus asset.";
     const finalPromptBonus = this.replaceTags(rawPromptBonus, contextData);
     const approvedBonus = await this.simpleGptCall(finalPromptBonus);
 
     // C. Packaging
-    // Anche qui usiamo contextData per riempire eventuali buchi nel template di packaging
     const finalPackage = await this.gptPackageWithRetry(approvedCandidacy, approvedBonus, contextData);
     
     // D. Salvataggio
@@ -301,10 +293,9 @@ export class MissionDeveloperService {
 
   private async gptPackageWithRetry(candidacy: string, bonus: string, contextData: any): Promise<FinalMissionPackage> {
     const templatePackage = this.loadPrompt('prompt_4_frontend_package.md') || "Package JSON.";
-    // Sostituiamo anche qui tutti i tag per sicurezza (es. Titolo Missione nel JSON)
+    // Sostituiamo anche qui tutti i tag per sicurezza
     let finalPrompt = this.replaceTags(templatePackage, contextData);
     
-    // Inseriamo i contenuti generati
     finalPrompt = finalPrompt
         .replace('[APPROVED_CANDIDACY]', candidacy)
         .replace('[APPROVED_BONUS]', bonus);
@@ -317,7 +308,6 @@ export class MissionDeveloperService {
        });
        return JSON.parse(res.choices[0].message.content || "{}");
     } catch(e) {
-        // Fallback robusto
         return { 
             deliverable_content: candidacy || "Errore Candidatura", 
             bonus_material_title: "Strategic Asset", 
