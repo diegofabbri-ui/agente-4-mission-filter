@@ -4,19 +4,30 @@ import { sql } from 'kysely';
 import fs from 'fs';
 import path from 'path';
 
-// --- 1. CONFIGURAZIONE FALLBACK (INDEED RIMOSSO) ---
+// --- 1. CONFIGURAZIONE "KILLER" DELLE FONTI ---
+// Rimossi tutti gli aggregatori "sporchi" (Indeed, Glassdoor, Google Jobs).
+// Ci concentriamo solo su piattaforme dove i clienti pagano o pubblicano direttamente.
 const FALLBACK_SOURCES = {
-    // Rimosso Indeed e Glassdoor (spesso richiedono login o hanno link rotti)
-    aggregators: ["google.com/search?ibp=htl;jobs", "linkedin.com/jobs"], 
-    general_remote: ["upwork.com/jobs", "freelancer.com/projects", "fiverr.com", "remoteok.com"],
-    tech_dev: ["stackoverflow.com/jobs", "github.com/jobs", "toptal.com", "weworkremotely.com"],
-    writing_content: ["problogger.com/jobs", "contently.net"],
-    design_creative: ["behance.net/joblist", "dribbble.com/jobs"],
-    marketing_sales: ["marketerhire.com", "growth.org/jobs"]
+    // Aggregatori "Puliti" (Pochi ma buoni)
+    aggregators: ["linkedin.com/jobs", "weworkremotely.com", "remoteok.com"], 
+    
+    // Generalisti (Massa critica)
+    general_remote: ["upwork.com/jobs", "freelancer.com/projects", "fiverr.com/buying"],
+    
+    // Verticali Tech (Alta qualità)
+    tech_dev: ["stackoverflow.com/jobs", "gun.io", "toptal.com", "ycombinator.com/jobs"],
+    
+    // Verticali Content & Creative
+    writing_content: ["problogger.com/jobs", "contently.net", "bestwriting.com/jobs"],
+    design_creative: ["behance.net/joblist", "dribbble.com/jobs", "designjobs.board"],
+    
+    // Verticali Marketing
+    marketing_sales: ["marketerhire.com", "growth.org/jobs", "exitfive.com/jobs"]
 };
 
 let sourcesMasterlist: any = FALLBACK_SOURCES;
 
+// Caricamento resiliente della Masterlist
 try {
     const pathsToTry = [
         path.join(process.cwd(), 'src', 'knowledge_base', 'sources_masterlist.json'),
@@ -27,11 +38,12 @@ try {
     for (const p of pathsToTry) {
         if (fs.existsSync(p)) {
             sourcesMasterlist = JSON.parse(fs.readFileSync(p, 'utf-8'));
+            console.log(`✅ [SYSTEM] Masterlist fonti caricata da: ${p}`);
             break;
         }
     }
 } catch (e) {
-    console.warn("⚠️ [SYSTEM] Masterlist non trovata. Uso Fallback.");
+    console.warn("⚠️ [SYSTEM] Masterlist non trovata. Uso Fallback (Mode: SAFE).");
 }
 
 export class PerplexityService {
@@ -55,35 +67,35 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA (No Indeed + No Full-Time)
+  // 🔍 CORE: LA CACCIA AL TESORO (Logic: "Client First")
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
     const now = new Date();
     const currentISO = now.toISOString(); 
     
-    // Calcolo Finestra Temporale
+    // Calcolo Finestra Temporale (Strettissima per Daily)
     const lookbackDays = mode === 'daily' ? 1 : (mode === 'weekly' ? 3 : 7);
     const pastDate = new Date();
     pastDate.setDate(now.getDate() - lookbackDays);
     const pastDateISO = pastDate.toISOString();
 
-    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Start: ${currentISO}`);
+    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} iniziata | Target: CLIENTS ONLY | Time: ${currentISO}`);
 
-    // Caricamento Prompt
+    // Caricamento Prompt Operativi
     let systemInstruction = "";
     if (mode === 'weekly') systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
     else if (mode === 'monthly') systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
     else systemInstruction = this.loadTextFile('system_headhunter_prompt.md');
 
-    if (!systemInstruction) systemInstruction = "You are a headhunter. Find active freelance jobs.";
+    if (!systemInstruction) systemInstruction = "You are an expert headhunter. Find active freelance jobs. Return strictly JSON.";
 
-    // Selezione Fonti (Pulizia aggressiva di Indeed)
+    // Selezione Fonti (Pulita da spazzatura)
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
-    const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 10);
+    const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 12);
     
-    // Costruzione Query "Anti-Corporate"
+    // --- COSTRUZIONE QUERY "CHIRURGICA" ---
     const searchContext = `
       TARGET ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
@@ -92,33 +104,30 @@ export class PerplexityService {
       CURRENT TIME: ${currentISO}
       OLDEST ALLOWED POST: ${pastDateISO}
       
-      --- 🚫 ANTI-CORPORATE FIREWALL (STRICT) ---
-      1. **NO INDEED:** Do NOT return any link from indeed.com (links are broken).
-      2. **NO FULL-TIME:** Discard any job mentioning "Health Insurance", "401k", "PTO", "Benefits", "Career path".
-      3. **NO EMPLOYMENT:** We are looking for **B2B Contracts / Freelance / Gigs**.
-      
-      --- 🎯 EFFORT TARGETING ---
-      Mode: '${mode.toUpperCase()}'
-      - **DAILY:** Micro-tasks, < 2 hours. Ex: "Fix bug", "Write article".
-      - **WEEKLY:** Small projects, < 10 hours. Ex: "Landing page", "Setup".
-      - **MONTHLY:** Retainers/Builds, < 40 hours total. Ex: "MVP", "Strategy".
+      --- 🎯 HUNTING PROTOCOL (STRICT) ---
+      1. **CLIENTS ONLY:** Find "Help Wanted" or "Hiring" posts. **IGNORE** freelancer profiles (e.g., "I am a dev", "My Resume").
+      2. **NO FULL-TIME JOBS:** If it mentions "Benefits", "Health Insurance", "401k", "PTO", "Commute" -> **KILL IT**. We want B2B Contracts.
+      3. **EFFORT CALIBRATION:**
+         - **DAILY:** Max 2 hours (Quick fix, Script tweak, Edit).
+         - **WEEKLY:** Max 8-10 hours (Landing page, Setup, Audit).
+         - **MONTHLY:** Max 30-40 hours (MVP Build, Retainer, Strategy).
       
       --- INSTRUCTIONS ---
       1. Search specifically on: ${targetSites.join(', ')}.
-      2. Look for keywords: "Contract", "Freelance", "Project-based", "Flat fee".
-      3. **Verify URL:** Must be a direct link to the platform (e.g. Upwork, Fiverr).
+      2. Look for keywords: "Contract", "Freelance", "Project-based", "Flat fee", "Urgent".
+      3. **Verify URL:** Must be a direct link to the JOB POST (e.g. upwork.com/jobs/..., NOT indeed.com/...).
     `;
 
     try {
       const response = await axios.post(
         'https://api.perplexity.ai/chat/completions',
         {
-          model: 'sonar-pro', 
+          model: 'sonar-pro', // Modello "Reasoning" per navigare meglio
           messages: [
             { role: 'system', content: systemInstruction },
-            { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, ACTIVE freelance opportunities matching '${mode}'.\n\nOUTPUT RULES:\n- JSON Array ONLY.\n- 'source_url' MUST be direct (NO Indeed).` }
+            { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, ACTIVE, HIGH-VALUE freelance opportunities matching '${mode}'.\n\nOUTPUT RULES:\n- JSON Array ONLY.\n- 'source_url' MUST be direct (NO redirects).` }
           ],
-          temperature: 0.1 // Minima creatività per massimo rigore
+          temperature: 0.1 // Creatività al minimo per evitare allucinazioni
         },
         { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
       );
@@ -127,29 +136,36 @@ export class PerplexityService {
       await this.processAndSaveOpportunities(rawContent, userId, mode);
 
     } catch (error: any) {
-      console.error("❌ Perplexity API Error:", error.message);
+      console.error("❌ [ERROR] Perplexity API Failed:", error.message);
     }
   }
 
   // ==================================================================================
-  // 🧠 INTELLIGENZA FONTI (Filtraggio Indeed)
+  // 🧠 INTELLIGENZA FONTI (Filtraggio Aggressivo)
   // ==================================================================================
   private getRelevantSources(roleAndSkills: string): string[] {
       const list = Object.keys(sourcesMasterlist).length > 0 ? sourcesMasterlist : FALLBACK_SOURCES;
       
-      // Funzione che rimuove attivamente Indeed e Glassdoor
-      const cleanList = (arr: string[]) => (arr || []).filter(s => !s.includes('indeed') && !s.includes('glassdoor'));
+      // Funzione che rimuove siti "tossici" per un freelancer
+      const cleanList = (arr: string[]) => (arr || []).filter(s => 
+          !s.includes('indeed') && 
+          !s.includes('glassdoor') &&
+          !s.includes('google.com') && 
+          !s.includes('simplyhired')
+      );
 
       const aggregators = cleanList(list.aggregators || FALLBACK_SOURCES.aggregators);
       const general = cleanList(list.general_remote || FALLBACK_SOURCES.general_remote);
       
       let sources = [...aggregators, ...general];
 
-      if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node'])) sources.push(...cleanList(list.tech_dev));
-      if (this.matches(roleAndSkills, ['writ', 'content', 'copy'])) sources.push(...cleanList(list.writing_content));
-      if (this.matches(roleAndSkills, ['design', 'ui', 'ux'])) sources.push(...cleanList(list.design_creative));
-      if (this.matches(roleAndSkills, ['market', 'seo', 'sales'])) sources.push(...cleanList(list.marketing_sales));
+      // Aggiunte verticali basate sulle skill
+      if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node', 'fullstack'])) sources.push(...cleanList(list.tech_dev));
+      if (this.matches(roleAndSkills, ['writ', 'content', 'copy', 'blog'])) sources.push(...cleanList(list.writing_content));
+      if (this.matches(roleAndSkills, ['design', 'ui', 'ux', 'art'])) sources.push(...cleanList(list.design_creative));
+      if (this.matches(roleAndSkills, ['market', 'seo', 'sales', 'growth'])) sources.push(...cleanList(list.marketing_sales));
       
+      // Shuffle per non cercare sempre negli stessi posti
       return [...new Set(sources)].sort(() => 0.5 - Math.random());
   }
 
@@ -162,27 +178,33 @@ export class PerplexityService {
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
+      // 1. Pulizia JSON
       let cleanContent = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
       const firstBracket = cleanContent.indexOf('[');
       const lastBracket = cleanContent.lastIndexOf(']');
       
-      if (firstBracket === -1 || lastBracket === -1) return;
+      if (firstBracket === -1 || lastBracket === -1) {
+          console.warn("⚠️ [DATA] Nessun JSON valido trovato nella risposta.");
+          return;
+      }
+      
       const missions = JSON.parse(cleanContent.substring(firstBracket, lastBracket + 1));
       
       let savedCount = 0;
       let maxCommands = type === 'weekly' ? 100 : (type === 'monthly' ? 400 : 20);
 
-      // Calibrazione Ore (Stretta)
+      // Calibrazione Ore (Stime difensive)
       let estimatedHours = 2; 
       if (type === 'weekly') estimatedHours = 8;
       if (type === 'monthly') estimatedHours = 40;
 
+      // 2. Transazione Database
       await db.transaction().execute(async (trx) => {
           
           for (const m of missions) {
             const finalUrl = m.source_url || m.url || "#";
             
-            // Validazione URL (Blocca Indeed a livello codice)
+            // Validazione URL (Doppio controllo sicurezza)
             if (!this.isValidJobUrl(finalUrl)) continue;
 
             const exists = await trx.selectFrom('missions').select('id').where('source_url', '=', finalUrl).executeTakeFirst();
@@ -218,19 +240,21 @@ export class PerplexityService {
                             mission_id: newMission.id,
                             user_id: userId,
                             role: 'system',
-                            content: `Nuova Missione (${type}) rilevata: ${m.title}.`,
+                            content: `Nuova Missione (${type.toUpperCase()}) intercettata: ${m.title}. (Stima: ${estimatedHours}h)`,
                             created_at: new Date()
                         })
                         .execute();
 
-                    // C. AGGIORNAMENTO FILTRI (Raw SQL per evitare errori di tipo)
+                    // C. AGGIORNAMENTO FILTRI (Fix "Nucleare" Raw SQL)
                     try {
                         await sql`
                             UPDATE mission_filters 
                             SET match_count = match_count + 1, last_match_at = NOW() 
                             WHERE user_id = ${userId} AND is_active = true
                         `.execute(trx);
-                    } catch (e) {}
+                    } catch (e) {
+                        // Silenzia errore filtri se tabella disallineata, la missione è salva.
+                    }
                     
                     savedCount++;
                 }
@@ -238,7 +262,7 @@ export class PerplexityService {
           }
       });
 
-      console.log(`✅ [DB] Salvate ${savedCount} missioni freelance.`);
+      console.log(`✅ [DB] Salvataggio completato: ${savedCount} nuove missioni (${type}).`);
 
     } catch (e) {
       console.error("❌ [DB] Errore Transazione:", e);
@@ -250,17 +274,20 @@ export class PerplexityService {
   private isValidJobUrl(url: string): boolean {
       if (!url || url.length < 10 || !url.startsWith('http')) return false;
       
-      // Blacklist aggressiva contro Indeed e link spazzatura
+      const lowerUrl = url.toLowerCase();
+      
+      // Blacklist aggressiva (Pattern da evitare come la peste)
       const blackList = [
           '/search', 'jobs?q=', 'login', 'signup', 
-          'indeed.com',          // BANNATO
-          'glassdoor.com',       // BANNATO
-          'google.com/search',   // BANNATO
-          'simplyhired.com'      // Spesso rotto
+          'indeed.com',          // Bannato
+          'glassdoor.com',       // Bannato
+          'google.com/search',   // Bannato
+          'profile', 'resume', 'cv', // Bannati i profili
+          'freelancers'          // Bannati gli elenchi di freelancer
       ];
       
-      if (blackList.some(p => url.includes(p))) {
-          // console.log(`https://en.wikipedia.org/wiki/Filter_%28band%29 Scartato URL vietato: ${url}`);
+      if (blackList.some(p => lowerUrl.includes(p))) {
+          // console.log(`https://en.wikipedia.org/wiki/Filter_%28band%29 Scartato link tossico: ${url}`);
           return false;
       }
       return true;
