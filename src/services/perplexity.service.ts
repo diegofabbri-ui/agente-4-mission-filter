@@ -4,7 +4,7 @@ import { sql } from 'kysely';
 import fs from 'fs';
 import path from 'path';
 
-// --- CONFIGURAZIONE FALLBACK ---
+// --- 1. CONFIGURAZIONE FALLBACK (Salva-Ricerca) ---
 const FALLBACK_SOURCES = {
     aggregators: ["google.com/search?ibp=htl;jobs", "linkedin.com/jobs", "indeed.com", "glassdoor.com"],
     general_remote: ["upwork.com/jobs", "freelancer.com/projects", "fiverr.com", "remoteok.com"],
@@ -16,21 +16,23 @@ const FALLBACK_SOURCES = {
 
 let sourcesMasterlist: any = FALLBACK_SOURCES;
 
+// Caricamento resiliente della Masterlist
 try {
     const pathsToTry = [
         path.join(process.cwd(), 'src', 'knowledge_base', 'sources_masterlist.json'),
         path.join(process.cwd(), 'dist', 'knowledge_base', 'sources_masterlist.json'),
         path.join(__dirname, '..', 'knowledge_base', 'sources_masterlist.json')
     ];
+    
     for (const p of pathsToTry) {
         if (fs.existsSync(p)) {
             sourcesMasterlist = JSON.parse(fs.readFileSync(p, 'utf-8'));
-            console.log(`✅ [SYSTEM] Masterlist caricata: ${p}`);
+            console.log(`✅ [SYSTEM] Masterlist fonti caricata da: ${p}`);
             break;
         }
     }
 } catch (e) {
-    console.warn("⚠️ [SYSTEM] Masterlist non trovata. Uso Fallback.");
+    console.warn("⚠️ [SYSTEM] Warning: sources_masterlist.json non trovato. Attivo Fallback Mode.");
 }
 
 export class PerplexityService {
@@ -54,14 +56,15 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA "WIDE NET" + "ANTI-ZOMBIE"
+  // 🔍 CORE: RICERCA OPPORTUNITÀ (Wide Net + Anti-Zombie + Effort Calibration)
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
     // 1. TEMPO REALE
     const now = new Date();
-    const currentISO = now.toISOString();
+    const currentISO = now.toISOString(); 
     
+    // Calcolo Finestra Temporale
     const lookbackDays = mode === 'daily' ? 1 : (mode === 'weekly' ? 3 : 7);
     const pastDate = new Date();
     pastDate.setDate(now.getDate() - lookbackDays);
@@ -69,43 +72,52 @@ export class PerplexityService {
 
     console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Start: ${currentISO}`);
 
-    // 2. Prompt
+    // 2. Caricamento Prompt
     let systemInstruction = "";
     if (mode === 'weekly') systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
     else if (mode === 'monthly') systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
     else systemInstruction = this.loadTextFile('system_headhunter_prompt.md');
 
-    if (!systemInstruction) systemInstruction = "You are a headhunter. Find active freelance jobs.";
+    if (!systemInstruction) systemInstruction = "You are an expert headhunter. Find active freelance jobs. Return strictly JSON.";
 
-    // 3. Fonti
+    // 3. Selezione Fonti
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
     const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 10);
     
-    // 4. Query
+    // 4. Costruzione Query con Calibrazione Sforzo (Effort)
     const searchContext = `
       TARGET ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
 
       --- 🕒 LIVE TIME CONTEXT ---
-      NOW: ${currentISO}
-      OLDEST ALLOWED: ${pastDateISO}
+      CURRENT TIME: ${currentISO}
+      OLDEST ALLOWED POST: ${pastDateISO}
       
-      --- 🎯 INSTRUCTIONS ---
+      --- 🎯 EFFORT CALIBRATION (CRITICAL) ---
+      You are searching for '${mode.toUpperCase()}' Missions.
+      - **DAILY Mode:** Look for "Flash Tasks" (Max 2 hours effort). Ex: Bug fixes, translation, small edits.
+      - **WEEKLY Mode:** Look for "One-Day Projects" (Max 8 hours effort). Ex: Landing page, setup, automation.
+      - **MONTHLY Mode:** Look for "Week-Long Projects" (Max 40 hours effort). Ex: MVP build, brand identity.
+      
+      --- 🚫 EXCLUSIONS ---
+      - **NO Full-Time Jobs** (40h/week indefinite).
+      - **NO "Job closed"** or "Expired" listings.
+      
+      --- INSTRUCTIONS ---
       1. Search on: ${targetSites.join(', ')} + Aggregators.
-      2. **TIME FILTER:** Ignore jobs older than ${lookbackDays} days.
-      3. **ANTI-ZOMBIE:** EXCLUDE pages with "Job closed", "Expired", "Filled".
-      4. **VERIFICATION:** Check the "Posted" date carefully.
+      2. Filter strictly by the Effort/Duration defined above.
+      3. Verify freshness (must be newer than ${pastDateISO}).
     `;
 
     try {
       const response = await axios.post(
         'https://api.perplexity.ai/chat/completions',
         {
-          model: 'sonar-pro',
+          model: 'sonar-pro', 
           messages: [
             { role: 'system', content: systemInstruction },
-            { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, ACTIVE job listings matching '${mode}'.\n\nOUTPUT: JSON Array ONLY. 'source_url' must be direct.` }
+            { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, OPEN job listings for '${mode}' mode.\n\nOUTPUT RULES:\n- JSON Array ONLY.\n- 'source_url' MUST be a direct deep link.` }
           ],
           temperature: 0.15 
         },
@@ -116,19 +128,23 @@ export class PerplexityService {
       await this.processAndSaveOpportunities(rawContent, userId, mode);
 
     } catch (error: any) {
-      console.error("❌ API Error:", error.message);
+      console.error("❌ Perplexity API Error:", error.message);
     }
   }
 
+  // ==================================================================================
+  // 🧠 INTELLIGENZA FONTI
+  // ==================================================================================
   private getRelevantSources(roleAndSkills: string): string[] {
       const list = Object.keys(sourcesMasterlist).length > 0 ? sourcesMasterlist : FALLBACK_SOURCES;
       const aggregators = list.aggregators || FALLBACK_SOURCES.aggregators || [];
       const general = list.general_remote || FALLBACK_SOURCES.general_remote || [];
       let sources = [...aggregators, ...general];
 
-      if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node'])) sources.push(...(list.tech_dev || []));
-      if (this.matches(roleAndSkills, ['writ', 'content', 'copy'])) sources.push(...(list.writing_content || []));
-      if (this.matches(roleAndSkills, ['design', 'ui', 'ux'])) sources.push(...(list.design_creative || []));
+      if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node', 'fullstack'])) sources.push(...(list.tech_dev || []));
+      if (this.matches(roleAndSkills, ['writ', 'content', 'copy', 'blog'])) sources.push(...(list.writing_content || []));
+      if (this.matches(roleAndSkills, ['design', 'ui', 'ux', 'art'])) sources.push(...(list.design_creative || []));
+      if (this.matches(roleAndSkills, ['market', 'seo', 'sales'])) sources.push(...(list.marketing_sales || []));
       
       return [...new Set(sources)].sort(() => 0.5 - Math.random());
   }
@@ -138,7 +154,7 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 💾 SALVATAGGIO TRANSAZIONALE (FIX BUILD: TYPE CASTING)
+  // 💾 SALVATAGGIO TRANSAZIONALE (Con Stime Orarie Aggiornate)
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
@@ -152,7 +168,12 @@ export class PerplexityService {
       let savedCount = 0;
       let maxCommands = type === 'weekly' ? 100 : (type === 'monthly' ? 400 : 20);
 
-      // --- TRANSAZIONE ---
+      // --- NUOVA CALIBRAZIONE ORE (Effort Logic) ---
+      let estimatedHours = 2; // Default: Daily (Max 2h)
+      if (type === 'weekly') estimatedHours = 8; // Max 1 Giorno lavorativo
+      if (type === 'monthly') estimatedHours = 40; // Max 1 Settimana lavorativa
+
+      // ESECUZIONE TRANSAZIONE
       await db.transaction().execute(async (trx) => {
           
           for (const m of missions) {
@@ -171,7 +192,7 @@ export class PerplexityService {
                     source_url: finalUrl,
                     source: this.detectPlatform(finalUrl),
                     reward_amount: this.parseReward(m.payout_estimation || m.budget),
-                    estimated_duration_hours: m.hours || (type === 'weekly' ? 10 : 2),
+                    estimated_duration_hours: estimatedHours, // <--- STIMA AGGIORNATA
                     status: 'pending',
                     type: type,
                     max_commands: maxCommands,
@@ -186,22 +207,21 @@ export class PerplexityService {
                   .executeTakeFirst();
 
                 if (newMission && newMission.id) {
-                    // B. INSERIMENTO THREAD
+                    // B. CREAZIONE THREAD (Sync Immediato)
                     await trx.insertInto('mission_threads')
                         .values({
                             mission_id: newMission.id,
                             user_id: userId,
                             role: 'system',
-                            content: `Missione trovata: ${m.title}`,
+                            content: `Nuova Missione (${type.toUpperCase()}) Trovata: ${m.title}. Durata stimata: ${estimatedHours}h.`,
                             created_at: new Date()
                         })
                         .execute();
 
-                    // C. AGGIORNAMENTO FILTRI (FIX COMPILAZIONE)
-                    // Usiamo (trx as any) per bypassare il controllo rigido dei tipi di TypeScript
-                    // su 'mission_filters' nel caso il file types/db.ts non sia aggiornato su Railway.
+                    // C. AGGIORNAMENTO FILTRI
+                    // Try-catch interno per sicurezza nel caso i tipi non siano ancora syncati al 100%
                     try {
-                        await (trx as any).updateTable('mission_filters')
+                        await trx.updateTable('mission_filters')
                             .set({
                                 match_count: sql`match_count + 1`,
                                 last_match_at: new Date()
@@ -209,9 +229,8 @@ export class PerplexityService {
                             .where('user_id', '=', userId)
                             .where('is_active', '=', true)
                             .execute();
-                    } catch (ignore) {
-                        // Ignora se la tabella non si trova, non bloccare la transazione
-                        console.warn("⚠️ Filtro non aggiornato (Type/DB mismatch)");
+                    } catch (e) {
+                        // Ignora errore filtri se la tabella non matcha, l'importante è salvare la missione
                     }
                     
                     savedCount++;
@@ -220,14 +239,15 @@ export class PerplexityService {
           }
       });
 
-      console.log(`✅ Transazione Completata: ${savedCount} missioni salvate.`);
+      console.log(`✅ [DB] Transazione Completata: ${savedCount} missioni salvate (Mode: ${type}).`);
 
     } catch (e) {
-      console.error("❌ Errore Transazione:", e);
+      console.error("❌ [DB] Errore Transazione:", e);
     }
   }
 
   // --- UTILS ---
+
   private isValidJobUrl(url: string): boolean {
       if (!url || url.length < 10 || !url.startsWith('http')) return false;
       if (url.includes('/search') || url.includes('?q=') || url.includes('login')) return false;
