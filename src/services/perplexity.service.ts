@@ -1,10 +1,11 @@
 import axios from 'axios';
 import { db } from '../infra/db';
-import { sql } from 'kysely'; // Necessario per l'incremento atomico
+import { sql } from 'kysely'; // Necessario per operazioni atomiche SQL
 import fs from 'fs';
 import path from 'path';
 
 // --- 1. CONFIGURAZIONE ROBUSTA MASTERLIST & FALLBACK ---
+// Se il file JSON manca, usiamo questa lista di sicurezza per non fermare il sistema.
 const FALLBACK_SOURCES = {
     aggregators: ["google.com/search?ibp=htl;jobs", "linkedin.com/jobs", "indeed.com", "glassdoor.com"],
     general_remote: ["upwork.com/jobs", "freelancer.com/projects", "fiverr.com", "remoteok.com"],
@@ -16,7 +17,7 @@ const FALLBACK_SOURCES = {
 
 let sourcesMasterlist: any = FALLBACK_SOURCES;
 
-// Caricamento resiliente della Masterlist (tenta più percorsi)
+// Caricamento resiliente della Masterlist (tenta più percorsi per Dev/Prod)
 try {
     const pathsToTry = [
         path.join(process.cwd(), 'src', 'knowledge_base', 'sources_masterlist.json'),
@@ -56,7 +57,7 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA OPPORTUNITÀ (Anti-Zombie + Transactional)
+  // 🔍 CORE: RICERCA OPPORTUNITÀ (Wide Net + Anti-Zombie + Transactional)
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
@@ -84,11 +85,11 @@ export class PerplexityService {
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
     
-    // Prendiamo i top 10 siti più rilevanti per questo utente
+    // Prendiamo i top 10 siti più rilevanti per questo utente + Aggregatori
     const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 10);
     
     // 4. Costruzione Query "Smart Filter"
-    // Combina la ricerca ampia (Wide Net) con filtri di esclusione (Anti-Zombie)
+    // Strategia: Usare linguaggio naturale per la ricerca (Wide Net) + Istruzioni di filtraggio severe per l'AI
     const searchContext = `
       TARGET ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
@@ -98,8 +99,8 @@ export class PerplexityService {
       OLDEST ALLOWED POST: ${pastDateISO}
       
       --- 🎯 SEARCH PROTOCOL ---
-      1. **SOURCES:** Prioritize these niche sites: ${targetSites.join(', ')}. Also scan major aggregators.
-      2. **FRESHNESS FILTER:** Only accept jobs posted AFTER ${pastDateISO}.
+      1. **SOURCES:** Prioritize these niche sites: ${targetSites.join(', ')}. Also scan major aggregators (Google Jobs, LinkedIn, Upwork).
+      2. **FRESHNESS FILTER:** Only accept jobs posted AFTER ${pastDateISO}. Use search tools to find "new" or "recent" listings.
       3. **ANTI-ZOMBIE FILTER:** DISCARD any page containing:
          - "Job closed"
          - "No longer accepting applications"
@@ -112,12 +113,12 @@ export class PerplexityService {
       const response = await axios.post(
         'https://api.perplexity.ai/chat/completions',
         {
-          model: 'sonar-pro', // Modello top-tier per la ricerca
+          model: 'sonar-pro', // Modello top-tier per la ricerca web
           messages: [
             { role: 'system', content: systemInstruction },
             { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, OPEN, and ACTIONABLE job listings for '${mode}' mode.\n\nOUTPUT RULES:\n- JSON Array ONLY.\n- 'source_url' MUST be a direct deep link to the job (no search pages).\n- If uncertain about status, DO NOT include.` }
           ],
-          temperature: 0.15 // Leggermente sopra lo 0 per permettere flessibilità nella ricerca, ma bassa per rigore nei dati
+          temperature: 0.2 // Leggermente più alta (0.2) per evitare blocchi creativi ("0 results"), ma abbastanza bassa per rigore
         },
         { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
       );
@@ -204,7 +205,7 @@ export class PerplexityService {
             // Validazione URL (Soft check per non scartare troppo)
             if (!this.isValidJobUrl(finalUrl)) continue;
 
-            // Check Duplicati
+            // Check Duplicati (dentro la transazione per sicurezza)
             const exists = await trx.selectFrom('missions').select('id').where('source_url', '=', finalUrl).executeTakeFirst();
 
             if (!exists) {
@@ -232,7 +233,7 @@ export class PerplexityService {
                   .executeTakeFirst();
 
                 if (newMission && newMission.id) {
-                    // B. INSERT THREAD (Sync immediato)
+                    // B. INSERT THREAD (Sync immediato per evitare tabelle vuote)
                     await trx.insertInto('mission_threads')
                         .values({
                             mission_id: newMission.id,
@@ -243,8 +244,7 @@ export class PerplexityService {
                         })
                         .execute();
 
-                    // C. UPDATE FILTRI (Incrementa contatore per il filtro attivo)
-                    // Aggiorna il filtro attivo dell'utente per riflettere che ha trovato nuovi match
+                    // C. UPDATE FILTRI (Incrementa contatore per il filtro attivo, se esiste)
                     await trx.updateTable('mission_filters')
                         .set({
                             match_count: sql`match_count + 1`,
@@ -260,7 +260,7 @@ export class PerplexityService {
           }
       });
 
-      console.log(`✅ [DB] Transazione Completata: ${savedCount} missioni, thread e filtri aggiornati.`);
+      console.log(`✅ [DB] Transazione Completata: ${savedCount} missioni e thread creati.`);
 
     } catch (e) {
       console.error("❌ [DB] Errore Transazione:", e);

@@ -6,6 +6,7 @@ export interface Database {
   user_ai_profile: UserAiProfileTable;
   mission_threads: MissionThreadTable;
   user_preferences: UserPreferencesTable;
+  mission_filters: MissionFiltersTable; // Tabella Allineata
 }
 
 interface UserTable {
@@ -31,7 +32,7 @@ interface MissionTable {
   status: 'pending' | 'developed' | 'active' | 'completed' | 'rejected' | 'archived';
   raw_category: string | null;
   remote_type: string | null;
-  skills_required: string[] | null; // Gestito come JSON o Array a seconda del DB, qui semplifichiamo
+  skills_required: string[] | null; // Gestito come JSON o Array
   experience_level: string | null;
   match_score: number | null;
   analysis_notes: string | null;
@@ -66,5 +67,19 @@ interface UserPreferencesTable {
   min_hourly_rate: number | null;
 }
 
-// Alias per l'export che usa il tuo codice
+// INTERFACCIA FILTRI AGGIORNATA (Allineata all'ultimo SQL fix)
+interface MissionFiltersTable {
+  id: Generated<string>;
+  user_id: string;
+  name: string | null;
+  keywords: string[] | null; // Array di testo (Postgres text[])
+  is_active: boolean;
+  match_count: number;
+  total_score: number;
+  factors_breakdown: any;    // JSON (Postgres jsonb)
+  last_match_at: Date | null;
+  created_at: Generated<Date>;
+}
+
+// Alias per l'export
 export type DB = Database;
