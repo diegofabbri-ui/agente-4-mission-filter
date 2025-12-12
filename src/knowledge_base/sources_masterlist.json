@@ -11,14 +11,16 @@
     "remoteok.com",
     "nodesk.co/remote-jobs",
     "remotive.com/remote-jobs",
-    "workingnomads.com/jobs"
+    "workingnomads.com/jobs",
+    "himalayas.app/jobs"
   ],
   "tech_dev": [
     "gun.io",
     "toptal.com",
     "wellfound.com/jobs",
     "stackoverflow.com/jobs",
-    "ycombinator.com/jobs"
+    "ycombinator.com/jobs",
+    "arc.dev/remote-jobs"
   ],
   "writing_content": [
     "problogger.com/jobs",
@@ -29,11 +31,18 @@
   "design_creative": [
     "behance.net/joblist",
     "dribbble.com/jobs",
-    "designjobs.board"
+    "designjobs.board",
+    "ifyoucouldjobs.com"
   ],
   "marketing_sales": [
     "marketerhire.com",
     "growth.org/jobs",
-    "exitfive.com/jobs"
+    "exitfive.com/jobs",
+    "heyimarketers.com"
+  ],
+  "crypto_web3": [
+    "web3.career",
+    "cryptocurrencyjobs.co",
+    "crypto.jobs"
   ]
 }

@@ -4,13 +4,13 @@ import { sql } from 'kysely';
 import fs from 'fs';
 import path from 'path';
 
-// --- 1. CONFIGURAZIONE "GIG FOCUSED" ---
-// Fallback specifico per garantire fonti rapide se il JSON manca
+// --- CONFIGURAZIONE FONTI (GUIDA, NON BLOCCO) ---
 const FALLBACK_SOURCES = {
     gig_quick: ["upwork.com/jobs", "freelancer.com/projects", "reddit.com/r/forhire", "guru.com/d/jobs"],
-    aggregators: ["remoteok.com", "nodesk.co", "remotive.com"],
-    tech: ["gun.io", "wellfound.com/jobs"],
-    creative: ["behance.net/joblist", "dribbble.com/jobs"]
+    aggregators: ["remoteok.com", "nodesk.co", "remotive.com", "weworkremotely.com"],
+    tech: ["gun.io", "wellfound.com/jobs", "stackoverflow.com/jobs"],
+    creative: ["behance.net/joblist", "dribbble.com/jobs"],
+    biz: ["marketerhire.com", "growth.org/jobs"]
 };
 
 let sourcesMasterlist: any = FALLBACK_SOURCES;
@@ -50,15 +50,26 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA "GIG-SPECIFIC" (Validazione Regex + Recency)
+  // 🔍 CORE: RICERCA "SMART" (Blacklist + Retry Automatico)
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
-    // Configurazione: Se è Daily, vogliamo SOLO le ultime 24h.
+    // 1. TENTATIVO PRINCIPALE (Recency Stretta)
     const recencyFilter = mode === 'daily' ? 'day' : 'week';
-    
-    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Recency: ${recencyFilter} | Strict Link Validation: ON`);
+    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Recency: ${recencyFilter}`);
 
+    try {
+        await this.performSearch(userId, clientProfile, mode, recencyFilter);
+    } catch (error) {
+        console.warn("⚠️ Prima ricerca (24h) fallita o vuota. Riprovo con finestra 'week'...");
+        // 2. RETRY AUTOMATICO (Se non trova nulla oggi, cerca nella settimana)
+        if (mode === 'daily') {
+            await this.performSearch(userId, clientProfile, mode, 'week');
+        }
+    }
+  }
+
+  private async performSearch(userId: string, clientProfile: any, mode: string, recency: string) {
     let systemInstruction = "";
     if (mode === 'weekly') systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
     else if (mode === 'monthly') systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
@@ -69,49 +80,49 @@ export class PerplexityService {
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
     
-    // --- SELEZIONE INTELLIGENTE DELLE FONTI ---
-    // Se cerchiamo 'Daily', usiamo SOLO i siti di "Lavoretti" (Gig), non i siti di carriera.
-    const targetSites = this.getModeSpecificSources(mode, userRole + " " + userSkills).slice(0, 12);
+    // Selezione Fonti Intelligente (Priorità ai Gig sites per Daily)
+    const targetSites = this.getModeSpecificSources(mode, userRole + " " + userSkills).slice(0, 15);
     
     const searchContext = `
       ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
       
       --- 🎯 SEARCH COMMAND ---
-      Find 5 ACTIVE listings published in the last ${recencyFilter === 'day' ? '24 hours' : '7 days'}.
+      Find 5 ACTIVE freelance/contract listings published in the last ${recency === 'day' ? '24 hours' : '7 days'}.
       
-      **EXCLUSIVE SOURCES:**
+      **PRIORITY SOURCES:**
       ${targetSites.join(', ')}
       
-      **STRICT VALIDATION RULES:**
-      1. **LINK CHECK:** URL must follow the platform's pattern (e.g. upwork.com/jobs/..., freelancer.com/projects/...). NO generic search pages.
-      2. **SCOPE CHECK:** - DAILY: Max 2 hours effort. "Quick fix", "Task".
-         - WEEKLY: Max 10 hours effort. "Mini-Project".
-         - MONTHLY: Retainer/Contract.
-      3. **NO FULL-TIME:** If it mentions "Annual Salary", "Benefits", "W2" -> DISCARD.
+      **STRICT EXCLUSIONS (DO NOT RETURN THESE):**
+      - **"smartremotejobs.com"** (FAKE/BROKEN LINKS)
+      - "indeed.com", "glassdoor.com", "linkedin.com" (BROKEN API LINKS)
+      
+      **CRITICAL FILTERS:**
+      1. **URL CHECK:** Must be a direct job post.
+      2. **NO EMPLOYEES:** Reject "W2", "Benefits", "Health Insurance".
+      3. **FREELANCE ONLY:** Look for "Contract", "B2B", "Project", "Hourly".
     `;
 
-    try {
-      const response = await axios.post(
-        'https://api.perplexity.ai/chat/completions',
-        {
-          model: 'sonar-pro', 
-          messages: [
-            { role: 'system', content: systemInstruction },
-            { role: 'user', content: `${searchContext}\n\nOUTPUT: JSON Array ONLY. 5 Results. Direct Valid URLs.` }
-          ],
-          search_recency_filter: recencyFilter, 
-          temperature: 0.1 
-        },
-        { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
-      );
+    const response = await axios.post(
+      'https://api.perplexity.ai/chat/completions',
+      {
+        model: 'sonar-pro', 
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: `${searchContext}\n\nOUTPUT: JSON Array ONLY. 5 Results. Valid Direct URLs.` }
+        ],
+        search_recency_filter: recency, 
+        temperature: 0.15 
+      },
+      { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
+    );
 
-      const rawContent = response.data.choices[0].message.content;
-      await this.processAndSaveOpportunities(rawContent, userId, mode);
+    const rawContent = response.data.choices[0].message.content;
+    
+    // Check veloce: se la risposta è vuota o corta, lancia errore per attivare il Retry
+    if (!rawContent || rawContent.length < 50 || rawContent.includes("[]")) throw new Error("Empty Response");
 
-    } catch (error: any) {
-      console.error("❌ API Error:", error.message);
-    }
+    await this.processAndSaveOpportunities(rawContent, userId, mode as any);
   }
 
   // --- SELEZIONE FONTI PER MODALITÀ ---
@@ -120,35 +131,38 @@ export class PerplexityService {
       let sources: string[] = [];
 
       if (mode === 'daily') {
-          // DAILY: Solo siti di Gig rapidi
+          // DAILY: Solo siti di Gig rapidi e aggregatori veloci
           sources.push(...(list.gig_quick || FALLBACK_SOURCES.gig_quick || []));
-          // Aggiungi nicchia se pertinente, ma con cautela
-          if (roleAndSkills.includes('writ')) sources.push(...(list.writing_content || []));
-          // NO Aggregatori "Corporate" (WeWorkRemotely, ecc.) per i Daily!
+          sources.push(...(list.aggregators || [])); // Backup
       } else {
-          // WEEKLY/MONTHLY: Aggregatori + Nicchia + Generalisti
+          // WEEKLY/MONTHLY: Mix completo
           sources.push(...(list.aggregators_clean || list.aggregators || []));
-          sources.push(...(list.general_freelance || []));
+          sources.push(...(list.gig_quick || []));
           
-          if (this.matches(roleAndSkills, ['dev', 'code'])) sources.push(...(list.tech_dev || []));
+          if (this.matches(roleAndSkills, ['dev', 'code'])) sources.push(...(list.tech || []));
           if (this.matches(roleAndSkills, ['writ', 'content'])) sources.push(...(list.writing_content || []));
           if (this.matches(roleAndSkills, ['design', 'ui'])) sources.push(...(list.design_creative || []));
-          if (this.matches(roleAndSkills, ['market', 'sales'])) sources.push(...(list.marketing_sales || []));
       }
       
-      return [...new Set(sources)].sort(() => 0.5 - Math.random());
+      // Rimuovi duplicati e siti rotti
+      return [...new Set(sources)]
+          .filter(s => !s.includes('smartremote') && !s.includes('indeed'))
+          .sort(() => 0.5 - Math.random());
   }
 
   private matches(text: string, keywords: string[]): boolean {
       return keywords.some(k => text.includes(k));
   }
 
-  // --- SALVATAGGIO CON VALIDAZIONE REGEX ---
+  // ==================================================================================
+  // 💾 SALVATAGGIO (Con Blacklist Check invece di Whitelist)
+  // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
       let cleanContent = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
       const firstBracket = cleanContent.indexOf('[');
       const lastBracket = cleanContent.lastIndexOf(']');
+      
       if (firstBracket === -1 || lastBracket === -1) return;
       const missions = JSON.parse(cleanContent.substring(firstBracket, lastBracket + 1));
       
@@ -160,9 +174,9 @@ export class PerplexityService {
           for (const m of missions) {
             const finalUrl = m.source_url || m.url || "#";
             
-            // --- VALIDAZIONE REGEX RIGIDA ---
-            if (!this.isValidRealJobLink(finalUrl)) {
-                console.log(`[LINK DISCARDED] Fake/Broken URL: ${finalUrl}`);
+            // --- BLACKLIST FILTER (Blocca solo i cattivi noti) ---
+            if (this.isBrokenSource(finalUrl)) {
+                console.log(`[BLOCKED SOURCE] ${finalUrl}`);
                 continue;
             }
 
@@ -172,7 +186,7 @@ export class PerplexityService {
                 const newMission = await trx.insertInto('missions')
                   .values({
                     user_id: userId,
-                    title: m.title || "Gig Rapido",
+                    title: m.title || "Opportunità Freelance",
                     description: m.description || "Dettagli nel link.",
                     source_url: finalUrl,
                     source: this.detectPlatform(finalUrl),
@@ -197,7 +211,7 @@ export class PerplexityService {
                             mission_id: newMission.id,
                             user_id: userId,
                             role: 'system',
-                            content: `Nuova Missione (${type}) trovata. Fonte: ${this.detectPlatform(finalUrl)}`,
+                            content: `Nuova Missione (${type}) rilevata: ${m.title}. Fonte: ${this.detectPlatform(finalUrl)}`,
                             created_at: new Date()
                         })
                         .execute();
@@ -215,39 +229,26 @@ export class PerplexityService {
             }
           }
       });
-      console.log(`✅ Saved ${savedCount} verified gigs.`);
+      console.log(`✅ Saved ${savedCount} valid missions.`);
     } catch (e) { console.error("❌ Processing Error:", e); }
   }
 
-  // --- UTILS: VALIDAZIONE URL BASATA SU PATTERN REALI ---
-  private isValidRealJobLink(url: string): boolean {
-      if (!url || url.length < 15 || !url.startsWith('http')) return false;
+  // --- UTILS: BLACKLIST INTELLIGENTE ---
+  private isBrokenSource(url: string): boolean {
+      if (!url || url.length < 10) return true;
       const lower = url.toLowerCase();
 
-      // Blacklist Generica
-      if (['login', 'signup', 'search', 'indeed', 'glassdoor', 'google'].some(x => lower.includes(x))) return false;
+      // LISTA NERA: Siti che danno 404 sicuri o richiedono login
+      const brokenDomains = [
+          'smartremotejobs', // BANNATO
+          'indeed.com',      
+          'glassdoor.com',   
+          'google.com/search', 
+          'linkedin.com/jobs/search',
+          'login', 'signup', 'signin'
+      ];
 
-      // VALIDAZIONE SPECIFICA PER PIATTAFORMA (Evita link inventati)
-      if (lower.includes('upwork.com')) {
-          // Upwork jobs validi hanno '~' (tilde) o '/jobs/' seguito da ID
-          return lower.includes('~') || lower.includes('/jobs/');
-      }
-      if (lower.includes('freelancer.com')) {
-          return lower.includes('/projects/');
-      }
-      if (lower.includes('reddit.com')) {
-          return lower.includes('/comments/');
-      }
-      if (lower.includes('guru.com')) {
-          return lower.includes('/jobs/');
-      }
-      if (lower.includes('behance.net')) {
-          return lower.includes('/joblist/');
-      }
-
-      // Per altri siti, ci fidiamo se ha segmenti "job-like"
-      const genericValid = ['/job/', '/project/', '/contract/', '/gig/', '/opportunity/'];
-      return genericValid.some(p => lower.includes(p));
+      return brokenDomains.some(bad => lower.includes(bad));
   }
 
   private detectPlatform(url: string): string {
