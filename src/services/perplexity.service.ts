@@ -1,12 +1,13 @@
 import axios from 'axios';
 import { db } from '../infra/db';
-import { sql } from 'kysely'; // Import fondamentale per il fix
+import { sql } from 'kysely'; 
 import fs from 'fs';
 import path from 'path';
 
-// --- CONFIGURAZIONE FALLBACK (Salva-Ricerca) ---
+// --- 1. CONFIGURAZIONE FALLBACK (INDEED RIMOSSO) ---
 const FALLBACK_SOURCES = {
-    aggregators: ["google.com/search?ibp=htl;jobs", "linkedin.com/jobs", "indeed.com", "glassdoor.com"],
+    // Rimosso Indeed e Glassdoor (spesso richiedono login o hanno link rotti)
+    aggregators: ["google.com/search?ibp=htl;jobs", "linkedin.com/jobs"], 
     general_remote: ["upwork.com/jobs", "freelancer.com/projects", "fiverr.com", "remoteok.com"],
     tech_dev: ["stackoverflow.com/jobs", "github.com/jobs", "toptal.com", "weworkremotely.com"],
     writing_content: ["problogger.com/jobs", "contently.net"],
@@ -16,7 +17,6 @@ const FALLBACK_SOURCES = {
 
 let sourcesMasterlist: any = FALLBACK_SOURCES;
 
-// Caricamento resiliente della Masterlist
 try {
     const pathsToTry = [
         path.join(process.cwd(), 'src', 'knowledge_base', 'sources_masterlist.json'),
@@ -27,12 +27,11 @@ try {
     for (const p of pathsToTry) {
         if (fs.existsSync(p)) {
             sourcesMasterlist = JSON.parse(fs.readFileSync(p, 'utf-8'));
-            console.log(`✅ [SYSTEM] Masterlist fonti caricata da: ${p}`);
             break;
         }
     }
 } catch (e) {
-    console.warn("⚠️ [SYSTEM] Warning: sources_masterlist.json non trovato. Attivo Fallback Mode.");
+    console.warn("⚠️ [SYSTEM] Masterlist non trovata. Uso Fallback.");
 }
 
 export class PerplexityService {
@@ -56,11 +55,10 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA OPPORTUNITÀ (Wide Net + Anti-Zombie + Effort Calibration)
+  // 🔍 CORE: RICERCA (No Indeed + No Full-Time)
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
-    // 1. TEMPO REALE
     const now = new Date();
     const currentISO = now.toISOString(); 
     
@@ -72,20 +70,20 @@ export class PerplexityService {
 
     console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Start: ${currentISO}`);
 
-    // 2. Caricamento Prompt
+    // Caricamento Prompt
     let systemInstruction = "";
     if (mode === 'weekly') systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
     else if (mode === 'monthly') systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
     else systemInstruction = this.loadTextFile('system_headhunter_prompt.md');
 
-    if (!systemInstruction) systemInstruction = "You are an expert headhunter. Find active freelance jobs. Return strictly JSON.";
+    if (!systemInstruction) systemInstruction = "You are a headhunter. Find active freelance jobs.";
 
-    // 3. Selezione Fonti
+    // Selezione Fonti (Pulizia aggressiva di Indeed)
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
     const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 10);
     
-    // 4. Costruzione Query con Calibrazione Sforzo (Effort)
+    // Costruzione Query "Anti-Corporate"
     const searchContext = `
       TARGET ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
@@ -94,20 +92,21 @@ export class PerplexityService {
       CURRENT TIME: ${currentISO}
       OLDEST ALLOWED POST: ${pastDateISO}
       
-      --- 🎯 EFFORT CALIBRATION (CRITICAL) ---
-      You are searching for '${mode.toUpperCase()}' Missions.
-      - **DAILY Mode:** Look for "Flash Tasks" (Max 2 hours effort). Ex: Bug fixes, translation, small edits.
-      - **WEEKLY Mode:** Look for "One-Day Projects" (Max 8 hours effort). Ex: Landing page, setup, automation.
-      - **MONTHLY Mode:** Look for "Week-Long Projects" (Max 40 hours effort). Ex: MVP build, brand identity.
+      --- 🚫 ANTI-CORPORATE FIREWALL (STRICT) ---
+      1. **NO INDEED:** Do NOT return any link from indeed.com (links are broken).
+      2. **NO FULL-TIME:** Discard any job mentioning "Health Insurance", "401k", "PTO", "Benefits", "Career path".
+      3. **NO EMPLOYMENT:** We are looking for **B2B Contracts / Freelance / Gigs**.
       
-      --- 🚫 EXCLUSIONS ---
-      - **NO Full-Time Jobs** (40h/week indefinite).
-      - **NO "Job closed"** or "Expired" listings.
+      --- 🎯 EFFORT TARGETING ---
+      Mode: '${mode.toUpperCase()}'
+      - **DAILY:** Micro-tasks, < 2 hours. Ex: "Fix bug", "Write article".
+      - **WEEKLY:** Small projects, < 10 hours. Ex: "Landing page", "Setup".
+      - **MONTHLY:** Retainers/Builds, < 40 hours total. Ex: "MVP", "Strategy".
       
       --- INSTRUCTIONS ---
-      1. Search on: ${targetSites.join(', ')} + Aggregators.
-      2. Filter strictly by the Effort/Duration defined above.
-      3. Verify freshness (must be newer than ${pastDateISO}).
+      1. Search specifically on: ${targetSites.join(', ')}.
+      2. Look for keywords: "Contract", "Freelance", "Project-based", "Flat fee".
+      3. **Verify URL:** Must be a direct link to the platform (e.g. Upwork, Fiverr).
     `;
 
     try {
@@ -117,9 +116,9 @@ export class PerplexityService {
           model: 'sonar-pro', 
           messages: [
             { role: 'system', content: systemInstruction },
-            { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, OPEN job listings for '${mode}' mode.\n\nOUTPUT RULES:\n- JSON Array ONLY.\n- 'source_url' MUST be a direct deep link.` }
+            { role: 'user', content: `${searchContext}\n\nTASK: Find 5 REAL, ACTIVE freelance opportunities matching '${mode}'.\n\nOUTPUT RULES:\n- JSON Array ONLY.\n- 'source_url' MUST be direct (NO Indeed).` }
           ],
-          temperature: 0.15 
+          temperature: 0.1 // Minima creatività per massimo rigore
         },
         { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
       );
@@ -133,18 +132,23 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🧠 INTELLIGENZA FONTI
+  // 🧠 INTELLIGENZA FONTI (Filtraggio Indeed)
   // ==================================================================================
   private getRelevantSources(roleAndSkills: string): string[] {
       const list = Object.keys(sourcesMasterlist).length > 0 ? sourcesMasterlist : FALLBACK_SOURCES;
-      const aggregators = list.aggregators || FALLBACK_SOURCES.aggregators || [];
-      const general = list.general_remote || FALLBACK_SOURCES.general_remote || [];
+      
+      // Funzione che rimuove attivamente Indeed e Glassdoor
+      const cleanList = (arr: string[]) => (arr || []).filter(s => !s.includes('indeed') && !s.includes('glassdoor'));
+
+      const aggregators = cleanList(list.aggregators || FALLBACK_SOURCES.aggregators);
+      const general = cleanList(list.general_remote || FALLBACK_SOURCES.general_remote);
+      
       let sources = [...aggregators, ...general];
 
-      if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node', 'fullstack'])) sources.push(...(list.tech_dev || []));
-      if (this.matches(roleAndSkills, ['writ', 'content', 'copy', 'blog'])) sources.push(...(list.writing_content || []));
-      if (this.matches(roleAndSkills, ['design', 'ui', 'ux', 'art'])) sources.push(...(list.design_creative || []));
-      if (this.matches(roleAndSkills, ['market', 'seo', 'sales'])) sources.push(...(list.marketing_sales || []));
+      if (this.matches(roleAndSkills, ['dev', 'code', 'react', 'node'])) sources.push(...cleanList(list.tech_dev));
+      if (this.matches(roleAndSkills, ['writ', 'content', 'copy'])) sources.push(...cleanList(list.writing_content));
+      if (this.matches(roleAndSkills, ['design', 'ui', 'ux'])) sources.push(...cleanList(list.design_creative));
+      if (this.matches(roleAndSkills, ['market', 'seo', 'sales'])) sources.push(...cleanList(list.marketing_sales));
       
       return [...new Set(sources)].sort(() => 0.5 - Math.random());
   }
@@ -154,7 +158,7 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 💾 SALVATAGGIO TRANSAZIONALE (FIX BUILD: RAW SQL)
+  // 💾 SALVATAGGIO TRANSAZIONALE (Nuclear Fix + Effort Data)
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
@@ -168,16 +172,17 @@ export class PerplexityService {
       let savedCount = 0;
       let maxCommands = type === 'weekly' ? 100 : (type === 'monthly' ? 400 : 20);
 
-      // --- NUOVA CALIBRAZIONE ORE (Effort Logic) ---
-      let estimatedHours = 2; // Default: Daily (Max 2h)
-      if (type === 'weekly') estimatedHours = 8; // Max 1 Giorno lavorativo
-      if (type === 'monthly') estimatedHours = 40; // Max 1 Settimana lavorativa
+      // Calibrazione Ore (Stretta)
+      let estimatedHours = 2; 
+      if (type === 'weekly') estimatedHours = 8;
+      if (type === 'monthly') estimatedHours = 40;
 
-      // ESECUZIONE TRANSAZIONE
       await db.transaction().execute(async (trx) => {
           
           for (const m of missions) {
             const finalUrl = m.source_url || m.url || "#";
+            
+            // Validazione URL (Blocca Indeed a livello codice)
             if (!this.isValidJobUrl(finalUrl)) continue;
 
             const exists = await trx.selectFrom('missions').select('id').where('source_url', '=', finalUrl).executeTakeFirst();
@@ -187,12 +192,12 @@ export class PerplexityService {
                 const newMission = await trx.insertInto('missions')
                   .values({
                     user_id: userId,
-                    title: m.title || "Opportunità",
+                    title: m.title || "Opportunità Freelance",
                     description: m.description || "Dettagli nel link.",
                     source_url: finalUrl,
                     source: this.detectPlatform(finalUrl),
                     reward_amount: this.parseReward(m.payout_estimation || m.budget),
-                    estimated_duration_hours: estimatedHours, // <--- STIMA AGGIORNATA
+                    estimated_duration_hours: estimatedHours,
                     status: 'pending',
                     type: type,
                     max_commands: maxCommands,
@@ -207,29 +212,25 @@ export class PerplexityService {
                   .executeTakeFirst();
 
                 if (newMission && newMission.id) {
-                    // B. CREAZIONE THREAD (Sync Immediato)
+                    // B. CREAZIONE THREAD
                     await trx.insertInto('mission_threads')
                         .values({
                             mission_id: newMission.id,
                             user_id: userId,
                             role: 'system',
-                            content: `Nuova Missione (${type.toUpperCase()}) Trovata: ${m.title}. Durata stimata: ${estimatedHours}h.`,
+                            content: `Nuova Missione (${type}) rilevata: ${m.title}.`,
                             created_at: new Date()
                         })
                         .execute();
 
-                    // C. AGGIORNAMENTO FILTRI (FIX NUCLEARE: RAW SQL)
-                    // Usiamo sql`` puro per bypassare il controllo tipi di TypeScript che falliva.
-                    // Questo non darà mai errore di compilazione.
+                    // C. AGGIORNAMENTO FILTRI (Raw SQL per evitare errori di tipo)
                     try {
                         await sql`
                             UPDATE mission_filters 
                             SET match_count = match_count + 1, last_match_at = NOW() 
                             WHERE user_id = ${userId} AND is_active = true
                         `.execute(trx);
-                    } catch (e) {
-                        // Ignora errore filtri se la tabella non matcha, l'importante è salvare la missione
-                    }
+                    } catch (e) {}
                     
                     savedCount++;
                 }
@@ -237,7 +238,7 @@ export class PerplexityService {
           }
       });
 
-      console.log(`✅ [DB] Transazione Completata: ${savedCount} missioni salvate (Mode: ${type}).`);
+      console.log(`✅ [DB] Salvate ${savedCount} missioni freelance.`);
 
     } catch (e) {
       console.error("❌ [DB] Errore Transazione:", e);
@@ -248,7 +249,20 @@ export class PerplexityService {
 
   private isValidJobUrl(url: string): boolean {
       if (!url || url.length < 10 || !url.startsWith('http')) return false;
-      if (url.includes('/search') || url.includes('?q=') || url.includes('login')) return false;
+      
+      // Blacklist aggressiva contro Indeed e link spazzatura
+      const blackList = [
+          '/search', 'jobs?q=', 'login', 'signup', 
+          'indeed.com',          // BANNATO
+          'glassdoor.com',       // BANNATO
+          'google.com/search',   // BANNATO
+          'simplyhired.com'      // Spesso rotto
+      ];
+      
+      if (blackList.some(p => url.includes(p))) {
+          // console.log(`https://en.wikipedia.org/wiki/Filter_%28band%29 Scartato URL vietato: ${url}`);
+          return false;
+      }
       return true;
   }
 
