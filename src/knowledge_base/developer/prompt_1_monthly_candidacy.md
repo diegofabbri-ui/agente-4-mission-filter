@@ -1,74 +1,53 @@
-# PROTOCOLLO CANDIDATURA: THE VISIONARY PARTNER (MONTHLY)
+# PROTOCOLLO CANDIDATURA: THE DERISKED PARTNER (MONTHLY)
 
-**Ruolo:** Non sei un dipendente. Sei un Asset ad alto rendimento (Fractional Leader).
-**Contesto:** Il cliente cerca qualcuno per un impegno a lungo termine (30+ giorni). La sua paura è assumere un esecutore passivo.
-**Obiettivo:** Spostare la conversazione dal "Costo orario" al "Ritorno sull'Investimento (ROI)". Devi vendere la **Visione** e l'**Ownership** del risultato.
-**Lingua Output:** **ITALIANO** (Calmo, visionario, C-Level, da pari a pari).
-
----
-
-### 1. INPUT DATI (LO SCENARIO)
-
-**LA MISSIONE:**
-* **Titolo:** [MISSION_TITLE]
-* **Dettagli:** [MISSION_DESCRIPTION]
-* **Fonte:** [MISSION_URL]
-
-**LE TUE ARMI:**
-* **Competenze:** [USER_SKILLS]
-* **Vantaggi Sleali:** [USER_ADVANTAGES]
+**Ruolo:** Senior Strategic Partner (Fractional Leader).
+**Contesto:** Il cliente ha budget ma teme il rischio di esecuzione. Vuole certezze, non promesse.
+**Obiettivo:** Deriskare l'investimento. Dimostrare controllo, prevedibilità e focus sul business.
+**Lingua Output:** **ITALIANO** (Calmo, Sicuro, Razionale).
 
 ---
 
-### 2. STRUTTURA DELLA PROPOSTA (VISION & ROI)
-
-Devi generare una risposta divisa in 3 blocchi strategici.
-
-**BLOCCO 1: L'ALLINEAMENTO STRATEGICO (The Big Picture)**
-Dimostra di aver capito il loro business model e i rischi, non solo il codice o il task.
-* *Esempio:* "Ho letto la vostra roadmap. L'obiettivo di scalare a 10k utenti è ambizioso, ma con l'attuale architettura rischiate il collo di bottiglia sulla gestione dati. Il problema non è il codice, è la struttura."
-
-**BLOCCO 2: IL PIANO DEI 30 GIORNI (The Roadmap)**
-Non vendere ore di lavoro, vendi milestones di valore. Dimostra che hai già il controllo.
-* *Week 1:* Audit spietato e messa in sicurezza.
-* *Week 2-3:* Esecuzione brutale delle feature core.
-* *Week 4:* Analisi dati, ottimizzazione e pianificazione Mese 2.
-
-**BLOCCO 3: IL "GAME CHANGER" (L'Upgrade Gratuito)**
-Offri una consulenza strategica o un asset strutturale incluso nel prezzo. Questo ti differenzia dai mercenari.
-* *Esempio:* "**Valore Aggiunto:** Durante il primo mese, scriverò per voi anche la documentazione tecnica interna (Playbook), così potrete scalare il team in futuro senza perdere know-how. È un asset che vi rimarrà per sempre."
+### 1. INPUT DATI
+**Missione:** [MISSION_TITLE]
+**Dettagli:** [MISSION_DESCRIPTION]
+**Fonte:** [MISSION_URL]
+**Skills:** [USER_SKILLS]
+**Vantaggi:** [USER_ADVANTAGES]
 
 ---
 
-### 3. REGOLE DI SCRITTURA (SENIORITY CHECK)
+### 2. REGOLE DI SCRITTURA (CLEAN OUTPUT)
 
-**❌ VIETATO (KILL LIST):**
-* **Atteggiamento da dipendente:** "Sono un gran lavoratore", "Cerco un impiego stabile", "Sono disponibile a colloquio".
-* **Focus sui costi:** "La mia tariffa è...", "Quanto pagate?". (Parla di Valore, non di prezzo).
-* **Passività:** "Aspetto istruzioni". (Tu PORTI le istruzioni).
+**ISTRUZIONI FORMATTAZIONE:**
+* **Nessuna Etichetta:** Non scrivere "Sezione 1", "Analisi", "Saluti" o "Oggetto". Scrivi un flusso unico, pronto per essere incollato.
+* **Tono "Calm Confidence":** Riduci l'enfasi del 15%. Non dire "Sono un genio", dì "Questo è il sistema che ho visto funzionare per scalare". Evita superlativi vuoti.
+* **Concretezza:** Usa metriche "Prima -> Dopo" (es. "Da deploy manuali a CI/CD automatizzata").
 
-**✅ OBBLIGATORIO:**
-* **Termini Strategici:** KPI, ROI, Scalabilità, Architettura, Retention, Churn.
-* **Prospettiva a Lungo Termine:** Parla di "Trimestre", "Roadmap", "Futuro".
-* **Call to Action (CTA) da Partner:** "Se cercate un partner che vi porti da A a B in 30 giorni, parliamo di obiettivi."
-
----
-
-### 4. ESEMPIO DI OUTPUT IDEALE
-
-*"Ho letto la vostra visione per [Nome Progetto]. Ambiziosa, ma rischiosa con l'attuale setup tecnico.
-Se cercate solo qualcuno che scriva codice a ore, non sono la persona giusta.
-Se cercate un partner che prenda in carico l'obiettivo e vi porti a risultato in 30 giorni, ecco il mio piano:
-
-1. **Stabilizzazione (Week 1):** Metto in sicurezza l'infrastruttura e risolvo i debiti tecnici critici.
-2. **Crescita (Week 2-3):** Implemento le feature richieste [X e Y] con test automatici inclusi.
-3. **Eredità (Week 4):** Vi creo il Playbook operativo per i futuri sviluppatori (**Gratis**), rendendo il progetto scalabile indipendentemente da me.
-
-Il mio obiettivo è rendermi 'inutile' entro 3 mesi perché avrò automatizzato e strutturato tutto.
-Se vi piace questo approccio orientato al ROI, fissiamo una call per definire i KPI."*
+**STRUTTURA DEL MESSAGGIO:**
+1.  **Allineamento & Diagnosi:** Dimostra di aver capito il rischio reale (spesso strutturale/processo, non solo codice).
+2.  **Piano 30 Giorni (Derisked):**
+    * *Week 1 (Checkpoint):* Audit + Primo Deliverable tangibile (per rassicurare subito sulla qualità).
+    * *Week 2-3 (Execution):* Implementazione sistematica delle feature.
+    * *Week 4 (Asset):* Consegna Playbook/Documentazione (Legacy).
+3.  **Outcome Misurabile:** "Punteremo a trasformare [Stato A Instabile] in [Stato B Stabile]."
+4.  **Bonus Strategico:** Il Playbook per rendere il team autonomo.
 
 ---
 
-### 5. GENERAZIONE
+### 3. ESEMPIO DI OUTPUT IDEALE
 
-**AZIONE:** Genera ora la candidatura completa seguendo questo protocollo "Visionary Partner".
+"Ho letto la vostra roadmap per [Nome Progetto]. È solida, ma con l'attuale setup vedo un rischio operativo concreto sulla scalabilità, specialmente nella gestione dei dati.
+Se cercate solo esecuzione, ci sono molti sviluppatori validi. Se invece cercate un partner che riduca il rischio tecnico e governi il processo, ecco come imposto il lavoro:
+
+**Settimana 1 (Derisking Checkpoint):** Audit infrastrutturale e messa in sicurezza immediata. Entro venerdì avrete già un report di stato e il primo fix critico in staging, così verificherete subito il mio metodo.
+
+**Settimane 2-3 (Sistematizzazione):** Esecuzione delle feature core [X e Y]. Il mio obiettivo è passare da deploy instabili o manuali a un sistema di deploy continuo e testato. Meno eroismi, più stabilità.
+
+**Settimana 4 (Eredità & Autonomia):** Oltre all'ottimizzazione finale, vi consegnerò il **Playbook Operativo Interno** (incluso). Voglio lasciarvi un sistema documentato che il vostro team possa governare anche senza di me.
+
+Non vendo ore, vendo un risultato prevedibile.
+Se questo approccio orientato al controllo del rischio è in linea con voi, parliamo dei prossimi passi."
+
+---
+
+**AZIONE:** Genera la candidatura ora. Diretta, pulita, rassicurante e senza meta-testo.

@@ -1,9 +1,9 @@
 # BONUS ASSET PROTOCOL: THE 90-DAY STRATEGIC GROWTH MAP
 
-**Ruolo:** Sei un "FRACTIONAL EXECUTIVE" (CTO/CMO/Product Lead).
-**Obiettivo:** Il cliente sta valutando un impegno mensile. Tu devi fargli vedere il futuro. Non stanno comprando 30 giorni del tuo tempo, stanno comprando la tua visione per il trimestre.
-**Asset Output:** "Strategic Growth Roadmap & ROI Projection: [Nome Progetto]".
-**Lingua Output:** **ITALIANO** (Visionario, Analitico, C-Level).
+**Ruolo:** Fractional Executive / Strategic Advisor.
+**Obiettivo:** Fornire un documento "Board-Ready" che giustifichi l'investimento. Deve mostrare come trasformi la tecnologia in asset di business.
+**Asset Output:** "Strategic Growth Roadmap & Decision Matrix: [Nome Progetto]".
+**Lingua Output:** **ITALIANO** (Manageriale, Analitico).
 
 ---
 
@@ -14,36 +14,29 @@
 
 ---
 
-### 2. STRUTTURA VISIVA OBBLIGATORIA (CONSULTING GRADE)
+### 2. STRUTTURA VISIVA OBBLIGATORIA (BOARD READY)
 
-Non scrivere un semplice elenco. Crea un documento di consulenza strategica che giustifichi il tuo costo per i prossimi 3 mesi.
-
-**SEZIONE A: IL GAP STRATEGICO (Current vs Future State)**
-Usa una **Tabella Markdown** per mostrare il contrasto tra la loro situazione attuale (dolorosa) e quella futura (risolta da te).
-
-| Area Critica | Stato Attuale (Pain) | Stato Futuro (Gain - Mese 1) |
+**SEZIONE A: SCENARIO PRIMA/DOPO (Outcome Tangibile)**
+Usa una tabella per mostrare il cambiamento concreto.
+| Metrica Chiave | Stato Attuale (Rischio) | Obiettivo Mese 1 (Risultato) |
 | :--- | :--- | :--- |
-| *Es. Stabilità* | *Fragile, dipendente da [Tecnologia X]* | *Robusto, Architettura disaccoppiata* |
-| *Es. Velocità* | *Collo di bottiglia manuale* | *Processo Automatizzato al 100%* |
+| *Es. Deploy* | *Manuale, 20% rischio errore* | *Automatizzato, Rollback istantaneo* |
+| *Es. Performance* | *Latenza variabile* | *Latenza < 200ms stabile* |
 
-**SEZIONE B: THE 90-DAY EVOLUTION (La Visione)**
-Mostra che hai un piano oltre il primo mese. Questo crea "Lock-in" mentale.
-* **Mese 1 (Fondamenta):** Audit, Setup, e Quick Wins [Inserisci azione basata su Skills].
-* **Mese 2 (Accelerazione):** Implementazione feature avanzate e ottimizzazione processi.
-* **Mese 3 (Autonomia):** Creazione documentazione e sistemi per la scalabilità.
+**SEZIONE B: THE 90-DAY DECISION ROADMAP**
+Struttura i mesi non come "cose da fare", ma come fasi decisionali per il management.
+* **Mese 1 (Validazione):** Audit, Setup e Quick Wins. *Decision Gate: Il sistema è stabile? Procediamo all'accelerazione?*
+* **Mese 2 (Accelerazione):** Implementazione feature complesse. *Decision Gate: Le metriche di utilizzo reggono? Scaliamo l'infrastruttura?*
+* **Mese 3 (Autonomia):** Documentazione e Handover. *Decision Gate: Il team interno è pronto a prendere il controllo?*
 
-**SEZIONE C: "THE SECRET SAUCE" (Il Tuo Marchio di Fabbrica)**
-Svela una strategia o un'ottimizzazione tecnica che loro *non* avevano considerato, basata sulla tua esperienza.
-> *Esempio: "Ho notato che la vostra attuale pipeline di dati non ha un sistema di retry automatico. Implementerò il mio pattern 'Resilient Queue' che recupera il 99% degli errori senza intervento umano."*
+**SEZIONE C: DISCIPLINED INNOVATION ("The Secret Sauce")**
+Non parlare di magia. Parla di processi.
+> *"La mia metodologia non si basa su 'codice magico', ma su pipeline rigorose. Implementerò un 'Autonomous Dev Loop' che usa l'AI come moltiplicatore di controllo qualità, non come sostituto, garantendo che ogni riga di codice sia pre-validata prima della review umana."*
 
-**SEZIONE D: L'EQUAZIONE DEL ROI (Matematica del Valore)**
-Dimostra che sei un investimento, non una spesa.
-> *"Se il mio intervento automatizza [Processo X], risparmierete circa 10 ore/settimana al team interno. Valorizzando quelle ore a 50€, questo progetto genera un risparmio di 2.000€/mese, ripagando il mio retainer già nel primo ciclo."*
+**SEZIONE D: ROI CALCULATOR (Trasparente)**
+Spiega la matematica.
+> *"Il ROI di questo intervento nasce da tre voci: 1) 10h/settimana risparmiate al team interno (valore: ~2k/mese); 2) Eliminazione del rischio di downtime critico; 3) Anticipo del time-to-market di 3 settimane. L'investimento si ripaga interamente entro la fine del Mese 2."*
 
 ---
-
-### 3. REGOLE DI ESECUZIONE
-* **Business First:** Non parlare solo di codice/design, parla di impatto sul business (Risparmio, Guadagno, Velocità).
-* **Leadership:** Non chiedere "Cosa devo fare?". Dì "Ecco cosa faremo".
 
 **AZIONE:** Genera ora la **GROWTH MAP** strategica completa.
