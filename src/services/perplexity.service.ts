@@ -4,14 +4,13 @@ import { sql } from 'kysely';
 import fs from 'fs';
 import path from 'path';
 
-// --- 1. CONFIGURAZIONE "GARDEN" (SOLO FONTI DIRETTE) ---
+// --- CONFIGURAZIONE FONTI (GUIDA PER L'AI, NON BLOCCO RIGIDO) ---
 const FALLBACK_SOURCES = {
-    // Solo siti che sappiamo essere affidabili e con link persistenti
-    trusted_aggregators: ["remoteok.com", "weworkremotely.com", "nodesk.co", "remotive.com", "workingnomads.com"],
-    freelance_platforms: ["upwork.com", "freelancer.com", "guru.com"],
-    tech_specialized: ["gun.io", "toptal.com", "ycombinator.com", "wellfound.com", "stackoverflow.com"],
-    content_creative: ["problogger.com", "bestwriting.com", "behance.net", "dribbble.com"],
-    marketing_biz: ["marketerhire.com", "growth.org", "exitfive.com"]
+    aggregators: ["remoteok.com", "weworkremotely.com", "nodesk.co", "remotive.com", "workingnomads.com"],
+    freelance: ["upwork.com/jobs", "freelancer.com/projects", "guru.com/d/jobs"],
+    tech: ["gun.io", "toptal.com", "ycombinator.com/jobs", "wellfound.com/jobs", "stackoverflow.com/jobs"],
+    creative: ["behance.net/joblist", "dribbble.com/jobs", "designjobs.board"],
+    biz: ["marketerhire.com", "growth.org/jobs", "exitfive.com/jobs"]
 };
 
 let sourcesMasterlist: any = FALLBACK_SOURCES;
@@ -22,22 +21,17 @@ try {
         path.join(process.cwd(), 'dist', 'knowledge_base', 'sources_masterlist.json'),
         path.join(__dirname, '..', 'knowledge_base', 'sources_masterlist.json')
     ];
-    
     for (const p of pathsToTry) {
         if (fs.existsSync(p)) {
             sourcesMasterlist = JSON.parse(fs.readFileSync(p, 'utf-8'));
-            console.log(`✅ [SYSTEM] Whitelist fonti caricata: ${p}`);
             break;
         }
     }
-} catch (e) {
-    console.warn("⚠️ [SYSTEM] Masterlist non trovata. Uso Fallback Whitelist.");
-}
+} catch (e) { console.warn("⚠️ Masterlist non trovata. Uso Fallback."); }
 
 export class PerplexityService {
   private apiKey: string;
   private kbPath: string;
-  private allowedDomains: string[] = [];
 
   constructor() {
     this.apiKey = process.env.PERPLEXITY_API_KEY || '';
@@ -45,20 +39,6 @@ export class PerplexityService {
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
       : path.join(process.cwd(), 'src', 'knowledge_base');
-      
-    // Inizializza la Whitelist dei domini
-    this.allowedDomains = this.extractDomains(sourcesMasterlist);
-  }
-
-  private extractDomains(sourceObj: any): string[] {
-      const allUrls: string[] = Object.values(sourceObj).flat() as string[];
-      // Pulisce gli URL per ottenere solo il dominio base (es. "upwork.com")
-      return allUrls.map(u => {
-          try {
-              const urlStr = u.startsWith('http') ? u : `https://${u}`;
-              return new URL(urlStr).hostname.replace('www.', '');
-          } catch (e) { return u.split('/')[0]; }
-      });
   }
 
   private loadTextFile(filename: string): string {
@@ -70,13 +50,26 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA "WHITELIST ONLY"
+  // 🔍 CORE: RICERCA "SMART FILTER" (Blacklist instead of Whitelist)
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
+    // 1. TENTATIVO PRINCIPALE (Recency Stretta)
     const recencyFilter = mode === 'daily' ? 'day' : 'week';
-    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Mode: Strict Whitelist`);
+    console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Recency: ${recencyFilter}`);
 
+    try {
+        await this.performSearch(userId, clientProfile, mode, recencyFilter);
+    } catch (error) {
+        console.warn("⚠️ Prima ricerca fallita o 0 risultati. Riprovo con finestra più ampia...");
+        // 2. RETRY AUTOMATICO (Recency Estesa se fallisce)
+        if (mode === 'daily') {
+            await this.performSearch(userId, clientProfile, mode, 'week');
+        }
+    }
+  }
+
+  private async performSearch(userId: string, clientProfile: any, mode: string, recency: string) {
     let systemInstruction = "";
     if (mode === 'weekly') systemInstruction = this.loadTextFile('system_headhunter_weekly.md');
     else if (mode === 'monthly') systemInstruction = this.loadTextFile('system_headhunter_monthly.md');
@@ -86,61 +79,62 @@ export class PerplexityService {
 
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
-    
-    // Seleziona 10 siti dalla Whitelist da passare al prompt
-    const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 10);
+    const targetSites = this.getRelevantSources(userRole + " " + userSkills).slice(0, 15);
     
     const searchContext = `
       ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
       
-      --- 🎯 STRICT SEARCH COMMAND ---
-      Find 5 ACTIVE freelance/contract listings published in the last ${recencyFilter === 'day' ? '24 hours' : '7 days'}.
+      --- 🎯 SEARCH COMMAND ---
+      Find 5 ACTIVE freelance/contract listings published in the last ${recency === 'day' ? '24 hours' : '7 days'}.
       
-      **ALLOWED SOURCES ONLY:**
+      **PRIORITY SOURCES:**
       ${targetSites.join(', ')}
       
-      **CRITICAL RULES:**
-      1. **WHITELIST ONLY:** Do NOT return results from "smartremotejobs", "indeed", "glassdoor", "linkedin". ONLY use the sites listed above.
-      2. **DIRECT LINKS:** The URL must link directly to the job post on the source platform.
-      3. **NO FULL-TIME:** Discard listings with "W2", "Benefits", "Health Insurance".
+      **STRICT EXCLUSIONS (DO NOT RETURN THESE):**
+      - **"smartremotejobs.com"** (FAKE/BROKEN LINKS)
+      - "indeed.com", "glassdoor.com" (BROKEN API LINKS)
+      - "linkedin.com/jobs" (LOGIN WALL)
+      
+      **CRITICAL FILTERS:**
+      1. **URL CHECK:** Must be a direct job post (contains /job/, /project/, /careers/).
+      2. **NO EMPLOYEES:** Reject "W2", "Benefits", "Health Insurance".
+      3. **FREELANCE ONLY:** Look for "Contract", "B2B", "Project", "Hourly".
     `;
 
-    try {
-      const response = await axios.post(
-        'https://api.perplexity.ai/chat/completions',
-        {
-          model: 'sonar-pro', 
-          messages: [
-            { role: 'system', content: systemInstruction },
-            { role: 'user', content: `${searchContext}\n\nOUTPUT: JSON Array ONLY. Valid Direct URLs only.` }
-          ],
-          search_recency_filter: recencyFilter, 
-          temperature: 0.1 
-        },
-        { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
-      );
+    const response = await axios.post(
+      'https://api.perplexity.ai/chat/completions',
+      {
+        model: 'sonar-pro', 
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: `${searchContext}\n\nOUTPUT: JSON Array ONLY. 5 Results. Valid Direct URLs.` }
+        ],
+        search_recency_filter: recency, 
+        temperature: 0.1 
+      },
+      { headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' } }
+    );
 
-      const rawContent = response.data.choices[0].message.content;
-      await this.processAndSaveOpportunities(rawContent, userId, mode);
+    const rawContent = response.data.choices[0].message.content;
+    
+    // Check veloce: se la risposta è vuota o corta, lancia errore per attivare il Retry
+    if (!rawContent || rawContent.length < 50) throw new Error("Empty Response");
 
-    } catch (error: any) {
-      console.error("❌ API Error:", error.message);
-    }
+    await this.processAndSaveOpportunities(rawContent, userId, mode as any);
   }
 
   private getRelevantSources(roleAndSkills: string): string[] {
-      // Logica semplificata: restituisce i siti dalla whitelist che matchano (o tutti se generico)
       const list = Object.keys(sourcesMasterlist).length > 0 ? sourcesMasterlist : FALLBACK_SOURCES;
-      let sources: string[] = [];
-      
-      // Aggiunge sempre i generalisti e aggregatori puliti
-      sources.push(...(list.aggregators_clean || list.aggregators || []));
-      sources.push(...(list.general_freelance || []));
+      const cleanList = (arr: string[]) => (arr || []).filter(s => !s.includes('smartremote') && !s.includes('indeed'));
 
-      if (this.matches(roleAndSkills, ['dev', 'code', 'tech'])) sources.push(...(list.tech_dev || []));
-      if (this.matches(roleAndSkills, ['writ', 'content'])) sources.push(...(list.writing_content || []));
-      if (this.matches(roleAndSkills, ['design', 'ui', 'ux'])) sources.push(...(list.design_creative || []));
+      const aggregators = cleanList(list.aggregators || list.aggregators_clean || []);
+      const general = cleanList(list.general_remote || list.general_freelance || []);
+      let sources = [...aggregators, ...general];
+
+      if (this.matches(roleAndSkills, ['dev', 'code', 'tech'])) sources.push(...cleanList(list.tech_dev));
+      if (this.matches(roleAndSkills, ['writ', 'content'])) sources.push(...cleanList(list.writing_content));
+      if (this.matches(roleAndSkills, ['design', 'ui'])) sources.push(...cleanList(list.design_creative));
       
       return [...new Set(sources)].sort(() => 0.5 - Math.random());
   }
@@ -150,14 +144,15 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 💾 SALVATAGGIO (Con Whitelist Check)
+  // 💾 SALVATAGGIO (Con Blacklist Check invece di Whitelist)
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
       let cleanContent = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
       const firstBracket = cleanContent.indexOf('[');
       const lastBracket = cleanContent.lastIndexOf(']');
-      if (firstBracket === -1 || lastBracket === -1) return;
+      
+      if (firstBracket === -1 || lastBracket === -1) return; // Non salvare nulla ma non bloccare
       const missions = JSON.parse(cleanContent.substring(firstBracket, lastBracket + 1));
       
       let savedCount = 0;
@@ -168,10 +163,10 @@ export class PerplexityService {
           for (const m of missions) {
             const finalUrl = m.source_url || m.url || "#";
             
-            // --- VALIDAZIONE WHITELIST (Il Filtro Supremo) ---
-            if (!this.isValidTrustedUrl(finalUrl)) {
-                // console.log(`https://www.merriam-webster.com/dictionary/rejected Dominio non fidato o bannato: ${finalUrl}`);
-                continue; // Salta questo risultato
+            // --- BLACKLIST FILTER (Sblocca tutto tranne i siti rotti) ---
+            if (this.isBrokenSource(finalUrl)) {
+                console.log(`[BLOCKED SOURCE] ${finalUrl}`);
+                continue;
             }
 
             const exists = await trx.selectFrom('missions').select('id').where('source_url', '=', finalUrl).executeTakeFirst();
@@ -223,30 +218,26 @@ export class PerplexityService {
             }
           }
       });
-      console.log(`✅ Saved ${savedCount} valid missions from TRUSTED sources.`);
+      console.log(`✅ Saved ${savedCount} valid missions.`);
     } catch (e) { console.error("❌ Processing Error:", e); }
   }
 
-  // --- UTILS: WHITELIST LOGIC ---
-  private isValidTrustedUrl(url: string): boolean {
-      if (!url || url.length < 15 || !url.startsWith('http')) return false;
+  // --- UTILS: BLACKLIST INTELLIGENTE ---
+  private isBrokenSource(url: string): boolean {
+      if (!url || url.length < 10) return true;
       const lower = url.toLowerCase();
 
-      // 1. BLACKLIST ESPLICITA (Siti bannati)
-      const blacklist = [
-          'smartremotejobs', // IL COLPEVOLE
-          'indeed', 'glassdoor', 'google.com/search', 
-          'login', 'signup', 'profile', 'resume'
+      // LISTA NERA: Siti che danno 404, richiedono login o sono aggregatori fake
+      const brokenDomains = [
+          'smartremotejobs', // IL COLPEVOLE PRINCIPALE
+          'indeed.com',      // Link temporanei
+          'glassdoor.com',   // Login wall
+          'google.com/search', // Pagina generica
+          'linkedin.com/jobs/search', // Pagina generica
+          'login', 'signup', 'signin' // Pagine di auth
       ];
-      if (blacklist.some(b => lower.includes(b))) return false;
 
-      // 2. WHITELIST CHECK (Deve essere nella nostra lista approvata)
-      // Se sourcesMasterlist è popolato, usiamo quello. Altrimenti fallback sui siti comuni.
-      // Controlla se il dominio dell'URL è contenuto in uno dei domini fidati
-      const isTrusted = this.allowedDomains.some(trustedDomain => lower.includes(trustedDomain.toLowerCase()));
-      
-      // Se non è nella whitelist, lo scartiamo. (Closed Garden)
-      return isTrusted;
+      return brokenDomains.some(bad => lower.includes(bad));
   }
 
   private detectPlatform(url: string): string {
