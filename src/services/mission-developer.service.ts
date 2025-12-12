@@ -5,23 +5,23 @@ import path from 'path';
 import { db } from '../infra/db';
 
 // ==================================================================================
-// ⚙️ CONFIGURAZIONE MODELLI AI (GENIUS MODE ACTIVE)
+// ⚙️ CONFIGURAZIONE MODELLI AI (GENIUS MODE)
 // ==================================================================================
 const AI_CONFIG = {
   openai: {
-    // Il "Braccio" Operativo - Aggiornato al modello top di gamma per output "Genius"
-    model: 'gpt-5.2-pro', 
+    // MODELLO AGGIORNATO COME RICHIESTO
+    model: 'gpt-5.1-chat-latest', 
   },
   gemini: {
-    // La "Mente" di Controllo (Auditor) - Invariato per stabilità
+    // La "Mente" di Controllo (Auditor)
     model: 'gemini-2.5-pro', 
     generationConfig: {
-      temperature: 0.1, // Freddo e spietato nel trovare errori
+      temperature: 0.1, 
       maxOutputTokens: 16384 
     }
   },
   system: {
-    max_loops: 3, // Tentativi di auto-correzione prima di forzare l'output
+    max_loops: 3,
   }
 };
 
@@ -55,26 +55,17 @@ export class MissionDeveloperService {
       generationConfig: AI_CONFIG.gemini.generationConfig
     });
     
-    // Gestione Path resiliente (Produzione vs Sviluppo)
     const isProd = process.env.NODE_ENV === 'production';
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
       : path.join(process.cwd(), 'src', 'knowledge_base');
   }
 
-  // Helper per caricare i prompt dai file .md in modo robusto
   private loadPrompt(filename: string): string {
     try {
       let filePath = path.join(this.kbPath, filename);
-      
-      // Tentativi di fallback per trovare il file
-      if (!fs.existsSync(filePath)) {
-          filePath = path.join(this.kbPath, 'developer', filename);
-      }
-      if (!fs.existsSync(filePath)) {
-          filePath = path.join(process.cwd(), 'src', 'knowledge_base', filename);
-      }
-      
+      if (!fs.existsSync(filePath)) filePath = path.join(this.kbPath, 'developer', filename);
+      if (!fs.existsSync(filePath)) filePath = path.join(process.cwd(), 'src', 'knowledge_base', filename);
       return fs.readFileSync(filePath, 'utf-8');
     } catch (e) {
       console.warn(`⚠️ Prompt file mancante: ${filename}`);
@@ -83,12 +74,11 @@ export class MissionDeveloperService {
   }
 
   // ==================================================================================
-  // 1️⃣ FASE STRATEGICA: IL "GENIUS PITCH" (Candidatura + Bonus)
+  // 1️⃣ FASE STRATEGICA: IL "GENIUS PITCH"
   // ==================================================================================
   public async developStrategy(missionId: string): Promise<FinalMissionPackage> {
-    console.log(`\n⚙️ [DEV] Avvio Elaborazione Strategia (Genius Mode): ${missionId}`);
+    console.log(`\n⚙️ [DEV] Avvio Elaborazione Strategia (Genius Mode - ${AI_CONFIG.openai.model}): ${missionId}`);
     
-    // 1. Recupero Missione e Profilo Utente
     const mission = await db.selectFrom('missions').selectAll().where('id', '=', missionId).executeTakeFirst();
     if (!mission) throw new Error("Missione non trovata");
 
@@ -101,36 +91,35 @@ export class MissionDeveloperService {
     const userSkills = JSON.stringify(profileData.keySkillsToAcquire || []);
     const userAdvantages = JSON.stringify(profileData.unfairAdvantages || []);
 
-    // 2. ROUTING INTELLIGENTE DEI PROMPT (Daily vs Weekly vs Monthly)
-    // Selezioniamo il "Persona" giusto per il tipo di missione
-    let candFile = 'prompt_1_gpt_developer_init.md'; // Default: Daily (The Fixer)
+    // ROUTING
+    let candFile = 'prompt_1_gpt_developer_init.md'; 
     let bonusFile = 'prompt_10_bonus_material_init.md'; 
 
     if (mission.type === 'weekly') {
-        candFile = 'prompt_1_weekly_candidacy.md'; // The Sprint Leader
+        candFile = 'prompt_1_weekly_candidacy.md';
         bonusFile = 'prompt_10_weekly_bonus.md';
         console.log("👉 Attivazione Protocollo WEEKLY (Sprint Leader)");
     } else if (mission.type === 'monthly') {
-        candFile = 'prompt_1_monthly_candidacy.md'; // The Strategic Partner
+        candFile = 'prompt_1_monthly_candidacy.md';
         bonusFile = 'prompt_10_monthly_bonus.md';
         console.log("👉 Attivazione Protocollo MONTHLY (Visionary)");
     } else {
         console.log("👉 Attivazione Protocollo DAILY (Problem Solver)");
     }
 
-    // A. Generazione Candidatura "Genius" (Over-Delivery immediata)
-    let promptCandidacy = this.loadPrompt(candFile) || "Generate high-value proposal.";
+    // A. Generazione Candidatura
+    let promptCandidacy = this.loadPrompt(candFile) || "Generate genius proposal.";
     promptCandidacy = promptCandidacy
       .replace('[MISSION_TITLE]', mission.title)
       .replace('[MISSION_DESCRIPTION]', mission.description || 'N/A')
       .replace('[MISSION_URL]', mission.source_url || 'N/A')
       .replace('[USER_SKILLS]', userSkills)
-      .replace('[USER_ADVANTAGES]', userAdvantages); // Chiave per il "Marchio di Fabbrica"
+      .replace('[USER_ADVANTAGES]', userAdvantages);
 
     const approvedCandidacy = await this.simpleGptCall(promptCandidacy);
 
-    // B. Generazione Bonus Asset "Shock & Awe" (Diagnosi o Roadmap)
-    let promptBonus = this.loadPrompt(bonusFile) || "Generate bonus asset.";
+    // B. Generazione Bonus Asset
+    let promptBonus = this.loadPrompt(bonusFile) || "Generate genius bonus.";
     promptBonus = promptBonus
       .replace('[MISSION_TITLE]', mission.title)
       .replace('[MISSION_DESCRIPTION]', mission.description || 'N/A')
@@ -138,10 +127,10 @@ export class MissionDeveloperService {
 
     const approvedBonus = await this.simpleGptCall(promptBonus);
 
-    // C. Packaging JSON (Unione dei pezzi per il Frontend)
+    // C. Packaging
     const finalPackage = await this.gptPackageWithRetry(approvedCandidacy, approvedBonus, mission);
     
-    // D. Salvataggio Persistente
+    // D. Salvataggio
     await db.updateTable('missions')
       .set({
         status: 'developed', 
@@ -155,12 +144,57 @@ export class MissionDeveloperService {
   }
 
   // ==================================================================================
-  // 2️⃣ FASE ESECUTIVA: CHAT OPERATIVA (Project Management)
+  // UTILS
   // ==================================================================================
+  private async simpleGptCall(prompt: string): Promise<string> {
+      try {
+          const res = await this.openai.chat.completions.create({
+              model: AI_CONFIG.openai.model,
+              messages: [{ role: "system", content: prompt }]
+          });
+          const content = res.choices[0].message.content || "";
+          if (!content) console.warn("⚠️ GPT ha restituito contenuto vuoto.");
+          return content;
+      } catch (e: any) { 
+          // Log dell'errore specifico
+          console.error(`❌ OpenAI API Error [${AI_CONFIG.openai.model}]:`, e.message);
+          return `Errore generazione AI (${AI_CONFIG.openai.model}).`; 
+      }
+  }
+
+  private async gptPackageWithRetry(candidacy: string, bonus: string, mission: any): Promise<FinalMissionPackage> {
+    const templatePackage = this.loadPrompt('prompt_4_frontend_package.md') || "Package content into JSON.";
+    const finalPrompt = templatePackage
+        .replace('[APPROVED_CANDIDACY]', candidacy)
+        .replace('[APPROVED_BONUS]', bonus)
+        .replace('[MISSION_TITLE]', mission.title)
+        .replace('[MISSION_COMPANY]', mission.company_name || 'Client');
+    
+    try {
+       const res = await this.openai.chat.completions.create({ 
+           model: AI_CONFIG.openai.model, 
+           messages: [{ role: "system", content: finalPrompt }],
+           response_format: { type: "json_object" }
+       });
+       return JSON.parse(res.choices[0].message.content || "{}");
+    } catch(e) {
+        console.error("❌ Errore Packaging JSON:", e);
+        return { 
+            deliverable_content: candidacy || "Errore generazione candidatura.", 
+            bonus_material_title: "Bonus Asset", 
+            bonus_material_content: bonus || "Errore generazione bonus.", 
+            strategy_brief: "Strategia generata con errori.", 
+            execution_steps: ["1. Verifica connessione API", "2. Riprova"], 
+            estimated_impact: "N/A", 
+            is_immediate_task: true, 
+            bonus_file_name: "Error.log" 
+        };
+    }
+  }
+
   public async executeChatStep(missionId: string, userId: string, userInput: string, attachments: any[] = []): Promise<string> {
       console.log(`\n💬 [EXEC] Chat Step (Mode: ${AI_CONFIG.openai.model}) per Missione: ${missionId}`);
 
-      // 1. Recupero contesto
       const mission = await db.selectFrom('missions')
         .select(['id', 'title', 'description', 'final_deliverable_json', 'conversation_history', 'command_count', 'max_commands', 'type'])
         .where('id', '=', missionId)
@@ -171,9 +205,8 @@ export class MissionDeveloperService {
       const currentStep = (mission.command_count || 0) + 1;
       const maxSteps = mission.max_commands || 20;
       
-      if (currentStep > maxSteps) return "⛔ LIMITE MISSIONE RAGGIUNTO. Si prega di archiviare.";
+      if (currentStep > maxSteps) return "⛔ LIMITE MISSIONE RAGGIUNTO. Archiviare la missione.";
 
-      // 2. Parsing storia
       let history: any[] = [];
       if (typeof mission.conversation_history === 'string') {
           history = JSON.parse(mission.conversation_history);
@@ -181,7 +214,6 @@ export class MissionDeveloperService {
           history = mission.conversation_history;
       }
 
-      // 3. Preparazione Input con Allegati
       let inputWithAttachments = userInput;
       if (attachments && attachments.length > 0) {
           inputWithAttachments += `\n\n--- [SYSTEM: USER ATTACHMENTS] ---\n`;
@@ -191,9 +223,7 @@ export class MissionDeveloperService {
           });
       }
 
-      // 4. Recupero Guida "Pacing" (Gestione del tempo di progetto)
       const pacingGuide = this.loadPrompt('guide_execution_pacing.md');
-      
       let promiseContext = "";
       try {
           const deliverable = typeof mission.final_deliverable_json === 'string' 
@@ -202,30 +232,24 @@ export class MissionDeveloperService {
           promiseContext = deliverable?.deliverable_content || "N/A";
       } catch(e) {}
 
-      // 5. System Prompt "Lead Engineer"
       const systemPrompt = `
       ROLE: You are the Lead Genius Developer/Consultant using ${AI_CONFIG.openai.model}.
-      
       --- MISSION CONTEXT ---
       Title: ${mission.title}
       Type: ${mission.type?.toUpperCase()}
       Progress: Step ${currentStep} of ${maxSteps}
-      Original Promise (Cover Letter): "${promiseContext.substring(0, 800)}..."
-      
-      --- PACING GUIDE ---
+      Original Promise: "${promiseContext.substring(0, 800)}..."
+      --- PACING ---
       ${pacingGuide}
-      
-      --- GENIUS INSTRUCTIONS ---
-      1. **OVER-DELIVER:** Always format output cleanly. Use ASCII tables, code blocks, or bold text for clarity.
-      2. **EXECUTE:** Don't just plan. Do the work. Write the code. Draft the email.
-      3. **AUTHORITY:** Speak as a peer expert, not a servant.
+      --- INSTRUCTIONS ---
+      1. **OVER-DELIVER:** Format cleanly (ASCII, Bold, Code Blocks).
+      2. **EXECUTE:** Do the work immediately.
+      3. **AUTHORITY:** Peer-to-peer tone.
       `;
 
-      // 6. Esecuzione Loop (GPT -> Gemini -> GPT)
       const recentHistory = history.slice(-12); 
       const finalResponse = await this.runExecutionLoop(systemPrompt, recentHistory, inputWithAttachments);
 
-      // 7. Aggiornamento DB
       const newMessageUser = { role: "user", content: inputWithAttachments, timestamp: new Date() };
       const newMessageAI = { role: "assistant", content: finalResponse, timestamp: new Date() };
       const updatedHistory = [...history, newMessageUser, newMessageAI];
@@ -243,9 +267,6 @@ export class MissionDeveloperService {
       return finalResponse;
   }
 
-  // ==================================================================================
-  // 🧠 CORE LOOP: GPT (GENIO) <-> GEMINI (AUDITOR)
-  // ==================================================================================
   private async runExecutionLoop(systemPrompt: string, history: any[], userInput: string): Promise<string> {
       let currentDraft = "";
       let loopCount = 0;
@@ -269,8 +290,8 @@ export class MissionDeveloperService {
               });
               currentDraft = res.choices[0].message.content || "Errore generazione.";
           } catch (e: any) {
-              console.error("OpenAI Error:", e);
-              return "Errore critico API OpenAI. Verificare chiave.";
+              console.error(`OpenAI Error (${AI_CONFIG.openai.model}):`, e.message);
+              return `Errore tecnico: Modello ${AI_CONFIG.openai.model} non raggiungibile o errore API.`;
           }
 
           if (currentDraft.length < 50 || loopCount > AI_CONFIG.system.max_loops) {
@@ -281,80 +302,25 @@ export class MissionDeveloperService {
           console.log(`   ⚖️ [LOOP ${loopCount}] Gemini Audit...`);
           try {
               const auditPrompt = `
-              ROLE: Strict Quality Assurance Auditor (Using ${AI_CONFIG.gemini.model}).
-              TASK: Evaluate the AI Draft.
-              1. Does it FULLY address the user request?
-              2. Is the tone professional and authoritative?
-              
-              USER REQUEST: "${userInput.substring(0, 1000)}..."
+              ROLE: Strict QA Auditor.
+              TASK: Check if the draft addresses the user request professionally.
+              USER: "${userInput.substring(0, 1000)}..."
               DRAFT: "${currentDraft.substring(0, 5000)}..."
-              
-              OUTPUT JSON: { "approved": boolean, "critique": "Specific feedback" }
+              OUTPUT JSON: { "approved": boolean, "critique": "feedback" }
               `;
-
               const auditRes = await this.geminiModel.generateContent(auditPrompt);
               const auditJson = this.safeJsonParse(auditRes.response.text());
-
-              if (auditJson && auditJson.approved) {
-                  approved = true;
-              } else if (auditJson) {
-                  console.log(`   ❌ Gemini rifiuta: ${auditJson.critique}`);
+              if (auditJson && auditJson.approved) approved = true;
+              else if (auditJson) {
                   messagesForGPT.push({ role: "assistant", content: currentDraft });
-                  messagesForGPT.push({ role: "system", content: `AUDITOR FEEDBACK: "${auditJson.critique}". RE-WRITE to fix this.` });
-              } else {
-                  approved = true; 
-              }
-
+                  messagesForGPT.push({ role: "system", content: `AUDITOR FEEDBACK: "${auditJson.critique}". Fix it.` });
+              } else approved = true;
           } catch (e) {
-              console.warn("⚠️ Gemini Audit Error (Skipping audit):", e);
+              console.warn("⚠️ Gemini Audit Error (Skipping):", e);
               approved = true;
           }
       }
-
       return currentDraft;
-  }
-
-  // ==================================================================================
-  // UTILS
-  // ==================================================================================
-  private async simpleGptCall(prompt: string): Promise<string> {
-      try {
-          const res = await this.openai.chat.completions.create({
-              model: AI_CONFIG.openai.model,
-              messages: [{ role: "system", content: prompt }]
-          });
-          return res.choices[0].message.content || "";
-      } catch (e) { return ""; }
-  }
-
-  private async gptPackageWithRetry(candidacy: string, bonus: string, mission: any): Promise<FinalMissionPackage> {
-    const templatePackage = this.loadPrompt('prompt_4_frontend_package.md') || "Package content into JSON.";
-    
-    const finalPrompt = templatePackage
-        .replace('[APPROVED_CANDIDACY]', candidacy)
-        .replace('[APPROVED_BONUS]', bonus)
-        .replace('[MISSION_TITLE]', mission.title)
-        .replace('[MISSION_COMPANY]', mission.company_name || 'Client');
-    
-    try {
-       const res = await this.openai.chat.completions.create({ 
-           model: AI_CONFIG.openai.model, 
-           messages: [{ role: "system", content: finalPrompt }],
-           response_format: { type: "json_object" }
-       });
-       return JSON.parse(res.choices[0].message.content || "{}");
-    } catch(e) {
-        return { 
-            deliverable_content: candidacy, 
-            bonus_material_title: "Bonus Asset Strategico", 
-            bonus_material_content: bonus, 
-            strategy_brief: "Strategia pronta. Bonus generato.", 
-            execution_steps: ["1. Copia la candidatura", "2. Allega il bonus", "3. Invia email"], 
-            estimated_impact: "Alto", 
-            is_immediate_task: true, 
-            bonus_file_name: "Bonus_Asset.pdf" 
-        };
-    }
   }
 
   private safeJsonParse(text: string): any {
