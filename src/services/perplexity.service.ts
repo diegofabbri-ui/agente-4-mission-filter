@@ -1,11 +1,11 @@
 import axios from 'axios';
 import { db } from '../infra/db';
-import { sql } from 'kysely'; // Necessario per operazioni atomiche SQL
+import { sql } from 'kysely'; // Necessario per l'incremento atomico (match_count + 1)
 import fs from 'fs';
 import path from 'path';
 
 // --- 1. CONFIGURAZIONE ROBUSTA MASTERLIST & FALLBACK ---
-// Se il file JSON manca, usiamo questa lista di sicurezza per non fermare il sistema.
+// Se il file JSON manca o è corrotto, il sistema usa questa lista per garantire la continuità.
 const FALLBACK_SOURCES = {
     aggregators: ["google.com/search?ibp=htl;jobs", "linkedin.com/jobs", "indeed.com", "glassdoor.com"],
     general_remote: ["upwork.com/jobs", "freelancer.com/projects", "fiverr.com", "remoteok.com"],
@@ -17,7 +17,7 @@ const FALLBACK_SOURCES = {
 
 let sourcesMasterlist: any = FALLBACK_SOURCES;
 
-// Caricamento resiliente della Masterlist (tenta più percorsi per Dev/Prod)
+// Caricamento resiliente della Masterlist (tenta percorsi Dev e Prod)
 try {
     const pathsToTry = [
         path.join(process.cwd(), 'src', 'knowledge_base', 'sources_masterlist.json'),
@@ -169,7 +169,7 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 💾 SALVATAGGIO TRANSAZIONALE (La parte più importante per il DB)
+  // 💾 SALVATAGGIO TRANSAZIONALE (FIX STRUTTURA DB)
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
@@ -213,7 +213,7 @@ export class PerplexityService {
                 const newMission = await trx.insertInto('missions')
                   .values({
                     user_id: userId,
-                    title: m.title || "Nuova Opportunità",
+                    title: m.title || "Opportunità",
                     description: m.description || "Dettagli non disponibili.",
                     source_url: finalUrl,
                     source: this.detectPlatform(finalUrl),
@@ -233,18 +233,20 @@ export class PerplexityService {
                   .executeTakeFirst();
 
                 if (newMission && newMission.id) {
-                    // B. INSERT THREAD (Sync immediato per evitare tabelle vuote)
+                    // B. INSERT THREAD (Sync immediato)
+                    // FIX: Usiamo 'role' e 'content' perché 'title' non esiste più in questa tabella
                     await trx.insertInto('mission_threads')
                         .values({
                             mission_id: newMission.id,
                             user_id: userId,
-                            title: m.title || "Discussione Missione",
-                            created_at: new Date(),
-                            updated_at: new Date()
+                            role: 'system', // Ruolo di sistema per l'inizializzazione
+                            content: `Nuova Missione Trovata: ${m.title}`, // Contenuto del messaggio
+                            created_at: new Date()
                         })
                         .execute();
 
-                    // C. UPDATE FILTRI (Incrementa contatore per il filtro attivo, se esiste)
+                    // C. UPDATE FILTRI (Incrementa contatore per il filtro attivo)
+                    // Ora TypeScript riconosce 'mission_filters' grazie all'aggiornamento di db.ts
                     await trx.updateTable('mission_filters')
                         .set({
                             match_count: sql`match_count + 1`,

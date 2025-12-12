@@ -6,7 +6,7 @@ export interface Database {
   user_ai_profile: UserAiProfileTable;
   mission_threads: MissionThreadTable;
   user_preferences: UserPreferencesTable;
-  mission_filters: MissionFiltersTable; // Tabella Allineata
+  mission_filters: MissionFiltersTable; // Tabella necessaria per la ricerca
 }
 
 interface UserTable {
@@ -36,13 +36,17 @@ interface MissionTable {
   experience_level: string | null;
   match_score: number | null;
   analysis_notes: string | null;
-  final_deliverable_json: any | null; // JSON
+  final_deliverable_json: any | null; // Campo JSON per il piano strategico
   final_work_content: string | null;
   client_requirements: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   source: string | null;
-  raw_data: any | null; // JSON
+  raw_data: any | null; // Campo JSON per dati grezzi
+  type?: 'daily' | 'weekly' | 'monthly'; // Campo opzionale per il tipo di missione
+  conversation_history?: any; // JSON per la storia della chat
+  command_count?: number;
+  max_commands?: number;
 }
 
 interface UserAiProfileTable {
@@ -57,9 +61,11 @@ interface MissionThreadTable {
   id: Generated<string>;
   mission_id: string | null;
   user_id: string | null;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system'; // Ruoli standard chat
   content: string;
   created_at: Generated<Date>;
+  // updated_at rimosso se non presente nello schema DB, altrimenti aggiungilo:
+  updated_at?: Generated<Date>; 
 }
 
 interface UserPreferencesTable {
@@ -67,7 +73,7 @@ interface UserPreferencesTable {
   min_hourly_rate: number | null;
 }
 
-// INTERFACCIA FILTRI AGGIORNATA (Allineata all'ultimo SQL fix)
+// INTERFACCIA FILTRI COMPLETA (Allineata con l'ultimo SQL Fix)
 interface MissionFiltersTable {
   id: Generated<string>;
   user_id: string;
@@ -81,5 +87,5 @@ interface MissionFiltersTable {
   created_at: Generated<Date>;
 }
 
-// Alias per l'export
+// Alias per l'export utilizzato nel resto dell'applicazione
 export type DB = Database;
