@@ -1,85 +1,39 @@
 {
-  "aggregators_clean": [
-    "linkedin.com/jobs",
-    "remoteok.com",
-    "weworkremotely.com",
-    "workingnomads.com/jobs",
-    "remotive.com/remote-jobs",
-    "jobspresso.co",
-    "himalayas.app/jobs",
-    "nodesk.co/remote-jobs",
-    "remote.co/remote-jobs",
-    "flexjobs.com/search"
-  ],
-  "general_freelance": [
+  "gig_quick": [
     "upwork.com/jobs",
     "freelancer.com/projects",
-    "fiverr.com/buying",
-    "peopleperhour.com/freelance-jobs",
     "guru.com/d/jobs",
-    "servicecape.com",
-    "truelancer.com/jobs"
+    "peopleperhour.com/freelance-jobs",
+    "reddit.com/r/forhire",
+    "reddit.com/r/jobbit"
+  ],
+  "aggregators_clean": [
+    "remoteok.com",
+    "nodesk.co/remote-jobs",
+    "remotive.com/remote-jobs",
+    "workingnomads.com/jobs"
   ],
   "tech_dev": [
-    "stackoverflow.com/jobs",
     "gun.io",
     "toptal.com",
-    "ycombinator.com/jobs",
     "wellfound.com/jobs",
-    "arc.dev/remote-jobs",
-    "authenticjobs.com/#skills=1",
-    "ruby.now",
-    "golangprojects.com",
-    "python.org/jobs",
-    "vuejobs.com",
-    "reactjobsboard.com"
+    "stackoverflow.com/jobs",
+    "ycombinator.com/jobs"
   ],
   "writing_content": [
     "problogger.com/jobs",
-    "contently.net",
     "bestwriting.com/jobs",
-    "bloggingpro.com/jobs",
-    "freelancewriting.com/jobs",
     "superpath.co/jobs",
-    "contentwritingjobs.com",
-    "journalismjobs.com",
-    "writerswork.com"
+    "bloggingpro.com/jobs"
   ],
   "design_creative": [
     "behance.net/joblist",
     "dribbble.com/jobs",
-    "designjobs.board",
-    "designmodo.com/jobs",
-    "ifyoucouldjobs.com",
-    "coroflot.com/jobs",
-    "workingnotworking.com",
-    "krop.com"
+    "designjobs.board"
   ],
   "marketing_sales": [
     "marketerhire.com",
     "growth.org/jobs",
-    "exitfive.com/jobs",
-    "heyimarketers.com",
-    "remotemarketers.net",
-    "salesgravy.com/job-board"
-  ],
-  "crypto_web3": [
-    "web3.career",
-    "cryptocurrencyjobs.co",
-    "crypto.jobs",
-    "remote3.co",
-    "pompcryptojobs.com",
-    "blockew.com"
-  ],
-  "ai_data": [
-    "ai-jobs.net",
-    "outerjoin.us",
-    "datauniverse.com",
-    "bigdatajobs.com"
-  ],
-  "customer_support_va": [
-    "supportshepherd.com",
-    "dynamitejobs.com",
-    "virtualassistantjobs.com"
+    "exitfive.com/jobs"
   ]
 }
