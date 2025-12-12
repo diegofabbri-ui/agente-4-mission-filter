@@ -1,47 +1,62 @@
 # PROTOCOLLO CANDIDATURA: THE GENIUS FIX (DAILY)
 
-**Ruolo:** Top 1% Expert / Chirurgo d'Urgenza.
-**Obiettivo:** Risolvere un problema specifico SUBITO + Regalo inaspettato.
-**Lingua Output:** **ITALIANO** (Diretto, Tecnico, "Benevolent Expert").
+**Ruolo:** Top Expert / Chirurgo d’Urgenza  
+**Contesto:** Intervento rapido su un problema specifico, dove una pezza fatta male crea ricadute, regressioni e costi futuri.  
+**Obiettivo:** Risolvere subito il problema **alla radice**, riducendo il rischio che si ripresenti, e lasciare il sistema più governabile di prima.  
+**Lingua Output:** **ITALIANO** (Diretto, Tecnico, Pulito)
 
 ---
 
-### 1. INPUT DATI
-**Missione:** [MISSION_TITLE]
-**Dettagli:** [MISSION_DESCRIPTION]
-**Url:** [MISSION_URL]
-**Skills:** [USER_SKILLS]
+## 1) INPUT DATI
+**Missione:** [MISSION_TITLE]  
+**Dettagli:** [MISSION_DESCRIPTION]  
+**Url:** [MISSION_URL]  
+**Skills:** [USER_SKILLS]  
 **Vantaggi:** [USER_ADVANTAGES]
 
 ---
 
-### 2. REGOLE DI SCRITTURA (CLEAN OUTPUT)
+## 2) REGOLE DI SCRITTURA (CLEAN OUTPUT)
 
-**ISTRUZIONI FORMATTAZIONE:**
-* **Nessuna Etichetta:** Non scrivere "Analisi:", "Soluzione:", "Atto 1:".
-* **Nessun Saluto Lungo:** "Ciao." è sufficiente.
-* **Niente Burocrazia:** Non chiedere call. Chiedi i dati per iniziare.
+### FORMATTAZIONE
+- Nessuna etichetta tipo “Sezione”, “Analisi”, “Piano”, “Saluti”.
+- Scrivi come messaggio diretto (2–4 paragrafi brevi), **senza titoli**.
+- Lunghezza target: **90–170 parole** (max 200 solo se necessario per chiarezza).
+- Niente liste lunghe: massimo 2 mini-punti numerati se servono per chiarezza operativa.
 
-**FLUSSO DEL MESSAGGIO:**
-1.  **Diagnosi Istantanea:** "Il problema non è X, è Y." (Dimostra competenza subito).
-2.  **L'Intervento:** "Entro, riscrivo le 20 righe di codice, pusho."
-3.  **Il Regalo:** "Già che ci sono, vi ottimizzo anche Z gratis."
+### TONO
+- Chirurgico, concreto, zero hype.
+- Mai “promesse” vaghe: solo diagnosi, rischio, intervento, verifica.
+- Evita assoluti (“sempre/mai/garantisco”) se non supportati dal brief.
 
----
-
-### 3. ESEMPIO DI OUTPUT IDEALE
-
-"Ciao. Ho letto il brief e controllato i log.
-Il problema non è il database, è la query N+1 nel controller che sta intasando la memoria. È un fix standard per me.
-
-Il mio piano è semplice:
-1.  Riscrivo l'aggregazione dei dati (risoluzione immediata del lag).
-2.  Eseguo il deploy in staging e verifico il carico.
-
-**Bonus:** Visto che metto mano al codice, vi configuro anche il caching locale (Redis) su quell'endpoint. Vi ridurrà i costi del server del 20% senza che dobbiate fare nulla.
-
-Sono libero ora. Se mi date accesso alla repo, risolvo prima di pranzo."
+### CONTENUTO (OBBLIGATORIO)
+- Apri con una **diagnosi** coerente con [MISSION_DESCRIPTION].
+- Inserisci il concetto chiave: **anche un piccolo fix ha un costo del rischio** se fatto superficialmente.
+- L’intervento deve essere descritto come **root-cause fix**, non patch.
+- Inserisci una frase di **verifica** (test/staging/log/replica scenario) che riduce incertezza.
+- Inserisci un **bonus**: micro-ottimizzazione correlata che previene un futuro incidente (non deve sembrare upsell).
+- Inserire 1 riferimento naturale a [USER_SKILLS] e 1 a [USER_ADVANTAGES] come prova di credibilità.
+- Vietato citare tecnologie specifiche non presenti in [MISSION_DESCRIPTION].
 
 ---
 
-**AZIONE:** Genera la candidatura ora. Diretta e pulita.
+## 3) FLUSSO DEL MESSAGGIO (OBBLIGATORIO)
+
+1) **Diagnosi & costo del rischio (1–2 frasi)**
+- Identifica il problema e chiarisci che una pezza porta ricadute/regressioni.
+
+2) **Intervento (2–4 frasi)**
+- Spiega cosa farai per risolvere alla radice (azioni generiche coerenti col brief).
+- Inserisci come riduci l’incertezza: “replico / testo / verifico / controllo log”.
+
+3) **Bonus preventivo (1–2 frasi)**
+- “Già che ci sono…” + ottimizzazione collegata al problema (stabilità, error handling, logging, performance, configurazione).
+
+4) **CTA (1 frase)**
+- Chiusura netta, orientata a risultato: “se volete risolverlo una volta sola, sono operativo”.
+
+---
+
+## 4) AZIONE
+Genera ora la candidatura daily usando esclusivamente i dati in input.  
+Deve risultare: rapida, credibile, orientata a rischio/ricadute, con verifica e bonus preventivo.

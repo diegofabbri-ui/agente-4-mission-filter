@@ -1,53 +1,78 @@
 # PROTOCOLLO CANDIDATURA: THE DERISKED PARTNER (MONTHLY)
 
-**Ruolo:** Senior Strategic Partner (Fractional Leader).
-**Contesto:** Il cliente ha budget ma teme il rischio di esecuzione. Vuole certezze, non promesse.
-**Obiettivo:** Deriskare l'investimento. Dimostrare controllo, prevedibilità e focus sul business.
-**Lingua Output:** **ITALIANO** (Calmo, Sicuro, Razionale).
+**Ruolo:** Senior Strategic Partner (Fractional Leader)  
+**Contesto:** Cliente con budget che teme rischio di esecuzione, lock-in e costi nascosti.  
+**Obiettivo:** Deriskare l’investimento con un meccanismo di controllo e decisioni “gate-based” entro 30 giorni.  
+**Lingua Output:** **ITALIANO** (Calmo, Sicuro, Razionale, Decisionale)
 
 ---
 
-### 1. INPUT DATI
-**Missione:** [MISSION_TITLE]
-**Dettagli:** [MISSION_DESCRIPTION]
-**Fonte:** [MISSION_URL]
-**Skills:** [USER_SKILLS]
+## 1) INPUT DATI
+**Missione:** [MISSION_TITLE]  
+**Dettagli:** [MISSION_DESCRIPTION]  
+**Fonte:** [MISSION_URL]  
+**Skills:** [USER_SKILLS]  
 **Vantaggi:** [USER_ADVANTAGES]
 
 ---
 
-### 2. REGOLE DI SCRITTURA (CLEAN OUTPUT)
+## 2) REGOLE DI SCRITTURA (CLEAN OUTPUT)
 
-**ISTRUZIONI FORMATTAZIONE:**
-* **Nessuna Etichetta:** Non scrivere "Sezione 1", "Analisi", "Saluti" o "Oggetto". Scrivi un flusso unico, pronto per essere incollato.
-* **Tono "Calm Confidence":** Riduci l'enfasi del 15%. Non dire "Sono un genio", dì "Questo è il sistema che ho visto funzionare per scalare". Evita superlativi vuoti.
-* **Concretezza:** Usa metriche "Prima -> Dopo" (es. "Da deploy manuali a CI/CD automatizzata").
+### FORMATTAZIONE
+- **Nessuna etichetta** tipo “Sezione”, “Analisi”, “Piano”, “Saluti”.
+- Scrivi **un flusso unico** come messaggio/mail diretta.
+- Lunghezza target: **170–260 parole** (se il brief è molto complesso: max **320**).
+- 1 singolo paragrafo può essere spezzato in 2–4 blocchi per leggibilità, ma **senza titoli**.
 
-**STRUTTURA DEL MESSAGGIO:**
-1.  **Allineamento & Diagnosi:** Dimostra di aver capito il rischio reale (spesso strutturale/processo, non solo codice).
-2.  **Piano 30 Giorni (Derisked):**
-    * *Week 1 (Checkpoint):* Audit + Primo Deliverable tangibile (per rassicurare subito sulla qualità).
-    * *Week 2-3 (Execution):* Implementazione sistematica delle feature.
-    * *Week 4 (Asset):* Consegna Playbook/Documentazione (Legacy).
-3.  **Outcome Misurabile:** "Punteremo a trasformare [Stato A Instabile] in [Stato B Stabile]."
-4.  **Bonus Strategico:** Il Playbook per rendere il team autonomo.
+### TONO
+- “Calm confidence”: zero hype, zero promesse vaghe, zero frasi autocelebrative.
+- Parla come chi progetta **sistemi decisionali** e governa rischio/qualità.
+- Evita termini assoluti (“garantisco”, “sempre”, “mai”) se non supportati dal brief.
 
----
-
-### 3. ESEMPIO DI OUTPUT IDEALE
-
-"Ho letto la vostra roadmap per [Nome Progetto]. È solida, ma con l'attuale setup vedo un rischio operativo concreto sulla scalabilità, specialmente nella gestione dei dati.
-Se cercate solo esecuzione, ci sono molti sviluppatori validi. Se invece cercate un partner che riduca il rischio tecnico e governi il processo, ecco come imposto il lavoro:
-
-**Settimana 1 (Derisking Checkpoint):** Audit infrastrutturale e messa in sicurezza immediata. Entro venerdì avrete già un report di stato e il primo fix critico in staging, così verificherete subito il mio metodo.
-
-**Settimane 2-3 (Sistematizzazione):** Esecuzione delle feature core [X e Y]. Il mio obiettivo è passare da deploy instabili o manuali a un sistema di deploy continuo e testato. Meno eroismi, più stabilità.
-
-**Settimana 4 (Eredità & Autonomia):** Oltre all'ottimizzazione finale, vi consegnerò il **Playbook Operativo Interno** (incluso). Voglio lasciarvi un sistema documentato che il vostro team possa governare anche senza di me.
-
-Non vendo ore, vendo un risultato prevedibile.
-Se questo approccio orientato al controllo del rischio è in linea con voi, parliamo dei prossimi passi."
+### CONTENUTO (OBBLIGATORIO)
+- Inserire sempre il **costo del non scegliere bene**: rischio “funziona abbastanza” → blocco evoluzione / riscritture / costi nascosti.
+- Il piano deve essere un **meccanismo di controllo**: riduzione incertezza decisione dopo decisione.
+- **Week 1** deve essere un **filtro bidirezionale** (mutual fit check) + **output verificabile**.
+- **Week 4** deve includere **trasferimento di potere** (no-lock-in) tramite Playbook/Runbook/Standard.
+- Inserire **almeno 2 “Prima → Dopo”** (metriche o segnali misurabili).  
+  - Se mancano numeri: usa segnali qualitativi (“manuale → automatizzato”, “debug a intuito → logging tracciabile”) coerenti con [MISSION_DESCRIPTION].
+- Vietato nominare tecnologie non presenti nel brief: usa termini generici (“stack”, “pipeline”, “backend”, “UI”, “dati”, “integrazioni”).
+- Inserire **1 riferimento naturale** a [USER_SKILLS] e **1** a [USER_ADVANTAGES] come prova.
 
 ---
 
-**AZIONE:** Genera la candidatura ora. Diretta, pulita, rassicurante e senza meta-testo.
+## 3) STRUTTURA DEL MESSAGGIO (OBBLIGATORIA)
+
+### Apertura: Allineamento + Costo del rischio (1–3 frasi)
+- Cita [MISSION_TITLE] e un dettaglio reale da [MISSION_DESCRIPTION].
+- Inserisci questa idea in forma naturale:
+  - “Il vero rischio non è che non funzioni, ma che funzioni abbastanza da essere usato e poi diventi difficile da evolvere senza costi nascosti.”
+
+### Approccio: Piano come controllo (1–2 frasi)
+- Inserisci questo frame:
+  - “Non un elenco di task: un sistema per ridurre l’incertezza decisione dopo decisione.”
+
+### Piano 30 giorni: 3 blocchi (brevi, concreti)
+- **Settimana 1 (Filtro Bidirezionale):**
+  - audit tecnico/operativo
+  - primo deliverable verificabile
+  - decision gate esplicito: “continuare / accelerare / fermare senza sunk cost”
+- **Settimane 2–3 (Sistematizzazione):**
+  - delivery delle feature core
+  - processo disciplinato (release/test/staging o equivalenti)
+  - dolore evitato: regressioni, sorprese, emergenze
+- **Settimana 4 (Transfer):**
+  - stabilizzazione + consolidamento
+  - consegna asset no-lock-in: Playbook operativo interno + standard minimi + handover
+
+### Chiusura: CTA ferma (1–2 frasi)
+- Disallineamento se cercano “ore”.
+- Allineamento se cercano ownership + prevedibilità.
+- Chiusura netta:
+  - “Se questo approccio riduce il rischio che vedete nel progetto, ha senso parlarne. In caso contrario, è meglio saperlo subito.”
+
+---
+
+## 4) AZIONE
+Genera ora la candidatura completa usando esclusivamente i dati in input.  
+Deve risultare: diretta, verificabile, orientata a rischio/decisioni, con ownership e no-lock-in.
