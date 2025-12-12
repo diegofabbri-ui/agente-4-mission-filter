@@ -4,7 +4,8 @@ import { sql } from 'kysely';
 import fs from 'fs';
 import path from 'path';
 
-// --- CONFIGURAZIONE FONTI ---
+// --- CONFIGURAZIONE FONTI (FALLBACK) ---
+// Rimossi siti problematici dalle liste di default
 const FALLBACK_SOURCES = {
     gig_quick: ["upwork.com/jobs", "freelancer.com/projects", "reddit.com/r/forhire", "guru.com/d/jobs"],
     aggregators: ["remoteok.com", "nodesk.co", "remotive.com", "weworkremotely.com"],
@@ -50,10 +51,11 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 🔍 CORE: RICERCA "SMART" (Anti-Crash)
+  // 🔍 CORE: RICERCA "SMART & STABLE"
   // ==================================================================================
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily') {
     
+    // Recency: 'day' per Daily, 'week' per gli altri
     const recencyFilter = mode === 'daily' ? 'day' : 'week';
     console.log(`🚀 [HUNTER] Caccia ${mode.toUpperCase()} | Recency: ${recencyFilter}`);
 
@@ -62,7 +64,7 @@ export class PerplexityService {
     } catch (error: any) {
         console.error(`⚠️ Errore Caccia (${mode}):`, error.message);
         
-        // Retry automatico SOLO se non è un errore di timeout grave o autenticazione
+        // Retry automatico solo se non è un errore fatale
         if (mode === 'daily' && !error.message.includes("401") && !error.message.includes("timeout")) {
             console.log("🔄 Tentativo Retry con filtro 'week'...");
             try {
@@ -85,51 +87,50 @@ export class PerplexityService {
     const userRole = (clientProfile.dreamRole || "freelancer").toLowerCase();
     const userSkills = (clientProfile.keySkillsToAcquire || []).join(' ').toLowerCase();
     
-    // Selezione Fonti (Limitata a 12 per evitare overload del prompt)
-    const targetSites = this.getModeSpecificSources(mode, userRole + " " + userSkills).slice(0, 12);
+    // Selezione Fonti (Max 15 per non confondere l'AI)
+    const targetSites = this.getModeSpecificSources(mode, userRole + " " + userSkills).slice(0, 15);
     
+    // Prompt Semplificato (Stile "Vecchio File" ma con protezioni)
+    // Meno vincoli negativi nel testo = Più risultati trovati.
+    // Il filtraggio "cattivo" lo facciamo noi dopo con 'isBrokenSource'.
     const searchContext = `
       ROLE: ${clientProfile.dreamRole}
       SKILLS: ${(clientProfile.keySkillsToAcquire || []).join(', ')}
       
-      --- 🎯 SEARCH COMMAND ---
-      Find 5 ACTIVE freelance/contract listings published in the last ${recency === 'day' ? '24 hours' : '7 days'}.
+      --- 🎯 SEARCH MISSION ---
+      Find 5 FRESH & ACTIVE freelance/contract opportunities published in the last ${recency === 'day' ? '24 hours' : '7 days'}.
       
-      **PRIORITY SOURCES:**
+      **LOOK HERE (PRIORITY):**
       ${targetSites.join(', ')}
       
-      **STRICT EXCLUSIONS (DO NOT RETURN THESE):**
-      - **"smartremotejobs.com"** (FAKE/BROKEN LINKS)
-      - "indeed.com", "glassdoor.com", "linkedin.com" (BROKEN API LINKS)
-      
-      **CRITICAL FILTERS:**
-      1. **URL CHECK:** Must be a direct job post.
-      2. **NO EMPLOYEES:** Reject "W2", "Benefits", "Health Insurance".
-      3. **FREELANCE ONLY:** Look for "Contract", "B2B", "Project", "Hourly".
+      **RULES:**
+      1. **LINK MUST WORK:** Verify the URL is a specific job post (not a search page).
+      2. **NO CORPORATE BS:** Ignore jobs with "Benefits", "401k", "On-site". We want Freelance/Contract.
+      3. **EXCLUDE:** Do NOT use "smartremotejobs", "peopleperhour", "indeed".
     `;
 
-    // FIX CRITICO: Timeout e Configurazione Axios per evitare hanging
     const response = await axios.post(
       'https://api.perplexity.ai/chat/completions',
       {
         model: 'sonar-pro', 
         messages: [
           { role: 'system', content: systemInstruction },
-          { role: 'user', content: `${searchContext}\n\nOUTPUT: JSON Array ONLY. 5 Results. Valid Direct URLs.` }
+          { role: 'user', content: `${searchContext}\n\nOUTPUT: JSON Array ONLY. Valid URLs.` }
         ],
         search_recency_filter: recency, 
         temperature: 0.15 
       },
       { 
+          // Timeout esteso a 90s per evitare crash su ricerche lente
           headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-          timeout: 90000 // 90 Secondi Timeout (Previene blocco infinito)
+          timeout: 90000 
       }
     );
 
     const rawContent = response.data.choices[0].message.content;
     
     if (!rawContent || rawContent.length < 50 || rawContent.includes("[]")) {
-        throw new Error("Empty or Invalid Response from AI");
+        throw new Error("Empty Response from AI");
     }
 
     await this.processAndSaveOpportunities(rawContent, userId, mode as any);
@@ -151,8 +152,9 @@ export class PerplexityService {
           if (this.matches(roleAndSkills, ['design', 'ui'])) sources.push(...(list.design_creative || []));
       }
       
+      // FILTRO PREVENTIVO SITI BANNATI
       return [...new Set(sources)]
-          .filter(s => !s.includes('smartremote') && !s.includes('indeed'))
+          .filter(s => !s.includes('smartremote') && !s.includes('indeed') && !s.includes('peopleperhour'))
           .sort(() => 0.5 - Math.random());
   }
 
@@ -161,7 +163,7 @@ export class PerplexityService {
   }
 
   // ==================================================================================
-  // 💾 SALVATAGGIO SICURO
+  // 💾 SALVATAGGIO CON FILTRO BLACKLIST
   // ==================================================================================
   private async processAndSaveOpportunities(rawJson: string, userId: string, type: 'daily' | 'weekly' | 'monthly') {
     try {
@@ -176,12 +178,15 @@ export class PerplexityService {
       let estimatedHours = type === 'daily' ? 2 : (type === 'weekly' ? 8 : 40);
       let maxCommands = type === 'weekly' ? 100 : (type === 'monthly' ? 400 : 20);
 
-      // Esecuzione in transazione per sicurezza
       await db.transaction().execute(async (trx) => {
           for (const m of missions) {
             const finalUrl = m.source_url || m.url || "#";
             
-            if (this.isBrokenSource(finalUrl)) continue;
+            // IL GUARDIANO: Blocca qui i siti rotti
+            if (this.isBrokenSource(finalUrl)) {
+                console.log(`[BLOCKED SOURCE] ${finalUrl}`);
+                continue;
+            }
 
             const exists = await trx.selectFrom('missions').select('id').where('source_url', '=', finalUrl).executeTakeFirst();
 
@@ -228,10 +233,22 @@ export class PerplexityService {
     } catch (e) { console.error("❌ Errore Elaborazione JSON/DB:", e); }
   }
 
+  // --- UTILS: BLACKLIST AGGIORNATA ---
   private isBrokenSource(url: string): boolean {
       if (!url || url.length < 10) return true;
       const lower = url.toLowerCase();
-      const brokenDomains = ['smartremotejobs', 'indeed.com', 'glassdoor.com', 'google.com/search', 'login', 'signup'];
+
+      // LISTA NERA UFFICIALE
+      const brokenDomains = [
+          'smartremotejobs',  // Bannato (truffa/rotto)
+          'peopleperhour',    // BANNATO ORA (link 404)
+          'indeed.com',       // Link temporanei non validi
+          'glassdoor.com',    // Login wall
+          'google.com/search',
+          'linkedin.com/jobs/search',
+          'login', 'signup', 'signin'
+      ];
+
       return brokenDomains.some(bad => lower.includes(bad));
   }
 
