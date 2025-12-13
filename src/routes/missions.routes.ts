@@ -89,21 +89,30 @@ missionsRouter.post('/:id/develop', authMiddleware, async (req: any, res) => {
   } catch (e) { res.status(500).json({ error: "Errore develop" }); }
 });
 
+// --- EXECUTE (ASINCRONO / FIRE & FORGET) ---
 missionsRouter.post('/:id/execute', authMiddleware, async (req: any, res) => {
   try {
     const { clientRequirements, attachments } = req.body;
     const userId = req.user.userId;
     const userInput = (clientRequirements && clientRequirements.trim().length > 0) ? clientRequirements : "Procedi.";
     
-    const result = await developerService.executeChatStep(req.params.id, userId, userInput, attachments || []);
-    res.json({ success: true, data: result });
+    // ⚠️ NON USIAMO AWAIT QUI!
+    // Lanciamo il processo in background e lasciamo che Node lo gestisca
+    developerService.executeChatStep(req.params.id, userId, userInput, attachments || [])
+        .catch(err => {
+            console.error(`❌ ERRORE BACKGROUND (Mission ${req.params.id}):`, err);
+            // In un sistema reale, qui scriveremmo l'errore nel DB per notificare l'utente
+        });
+
+    // Rispondiamo SUBITO al client per evitare il timeout di 30s
+    res.json({ success: true, status: 'processing', message: "Agente avviato in background." });
+    
   } catch (e: any) { 
-      const msg = e.message.includes("LIMITE") ? e.message : "Errore esecuzione.";
-      res.status(500).json({ error: msg }); 
+      res.status(500).json({ error: "Errore avvio richiesta." }); 
   }
 });
 
-// NUOVA ROTTA: CHIUSURA MISSIONE & PULIZIA MEMORIA
+// CHIUSURA MISSIONE
 missionsRouter.post('/:id/complete', authMiddleware, async (req: any, res) => {
   try {
     await developerService.completeMission(req.params.id);

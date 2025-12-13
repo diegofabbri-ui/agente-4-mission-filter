@@ -187,9 +187,15 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
     }
 
     setIsExecuting(true);
-    await onExecute(mission.id, localInput, localAttachments);
-    setIsExecuting(false);
-    setLocalAttachments([]);
+    try {
+        await onExecute(mission.id, localInput, localAttachments);
+        setLocalInput(""); // Pulisce solo dopo avvio con successo
+        setLocalAttachments([]);
+    } catch (e) {
+        console.error("Errore avvio comando:", e);
+    } finally {
+        setIsExecuting(false);
+    }
   };
 
   return (
@@ -211,7 +217,7 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
                     </span>
                 )}
                 
-                {/* TASTO CHIUSURA MISSIONE (NUOVO) */}
+                {/* TASTO CHIUSURA MISSIONE */}
                 <button 
                     onClick={() => onComplete(mission.id)}
                     className="px-3 py-1 rounded text-[10px] uppercase font-bold tracking-widest bg-red-900/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white transition-all flex items-center gap-2"
@@ -442,18 +448,58 @@ export default function Dashboard() {
     try { await apiClient.patch(`/missions/${id}/status`, { status: 'active' }); await fetchMissions(); showNotification("Missione accettata! Agente Attivato.", 'success'); } catch (e) { showNotification("Errore accettazione.", 'error'); }
   };
 
+  // --- NUOVO: EXECUTE CON POLLING (ASYNC) ---
   const handleExecuteProxy = async (id: string, text: string, files: AttachedFile[]) => {
-    try {
-      await apiClient.post(`/missions/${id}/execute`, { clientRequirements: text, attachments: files });
-      await fetchMissions();
-      showNotification("Risposta Agente Ricevuta!", 'success');
-    } catch (e) { 
-        showNotification("Errore esecuzione. Verifica stato missione.", 'error'); 
-        throw e; 
-    } 
+    // 1. Snapshot iniziale per capire quando cambia
+    const initialMission = missions.find(m => m.id === id);
+    const initialContent = initialMission?.final_work_content || "";
+
+    // 2. Avvia Job in background
+    await apiClient.post(`/missions/${id}/execute`, { clientRequirements: text, attachments: files });
+    
+    showNotification("Agente al lavoro... Attendi il completamento.", 'success');
+
+    // 3. Polling per 120 secondi
+    return new Promise<void>((resolve, reject) => {
+        let attempts = 0;
+        const maxAttempts = 40; // 120s totali
+
+        const intervalId = setInterval(async () => {
+            attempts++;
+            try {
+                // Fetch silenzioso
+                const res = await apiClient.get('/missions/my-missions?limit=50');
+                const rawMissions = res.data.data;
+                const currentMission = rawMissions.find((m: any) => m.id === id);
+                const currentContent = currentMission?.final_work_content || "";
+
+                // CHECK: Se il contenuto è diverso dall'inizio -> FATTO
+                if (currentContent !== initialContent) {
+                    clearInterval(intervalId);
+                    
+                    // Aggiorna stato React
+                    const parsedData = rawMissions.map((m: any) => ({
+                        ...m,
+                        final_deliverable_json: typeof m.final_deliverable_json === 'string' ? JSON.parse(m.final_deliverable_json) : m.final_deliverable_json
+                    }));
+                    setMissions(parsedData);
+                    
+                    showNotification("Step completato con successo!", 'success');
+                    resolve();
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(intervalId);
+                    showNotification("L'operazione sta richiedendo molto tempo. Ricarica la pagina.", 'error');
+                    reject(new Error("Polling Timeout"));
+                }
+            } catch (e) {
+                // Ignora errori di rete temporanei durante il polling
+            }
+        }, 3000);
+    });
   };
 
-  // NUOVO HANDLER: COMPLETAMENTO MISSIONE
   const handleComplete = async (id: string) => {
       if(!confirm("⚠️ ATTENZIONE: Confermi il completamento? \n\nLa memoria dell'agente per questa missione verrà CANCELLATA irreversibilmente.\nNon potrai più interagire con questo contesto.")) return;
       
@@ -468,7 +514,6 @@ export default function Dashboard() {
 
   const currentDevMission = developedMissions.find(m => m.id === selectedDevMissionId) || developedMissions[0];
 
-  // Config UI dinamica
   const getHuntUI = () => {
       switch(huntMode) {
           case 'weekly': return { color: 'blue', label: 'CACCIA SETTIMANALE (SPRINT)', icon: Calendar };
