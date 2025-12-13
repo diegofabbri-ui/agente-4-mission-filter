@@ -156,8 +156,8 @@ const TaskPolygonGraph = ({ tasks }: { tasks: { label: string, percent: number }
 // 4. COMPONENTI SPECIFICI (Cards)
 // ==================================================================================
 
-// --- CARD MISSIONE ATTIVA (Layout 3 - Esecuzione) ---
-function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute: (id: string, text: string, files: AttachedFile[]) => Promise<void> }) {
+// --- CARD MISSIONE ATTIVA (Layout 3 - Esecuzione AGENTE) ---
+function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Mission, onExecute: (id: string, text: string, files: AttachedFile[]) => Promise<void>, onComplete: (id: string) => Promise<void> }) {
   const [localInput, setLocalInput] = useState(mission.client_requirements || "");
   const [localAttachments, setLocalAttachments] = useState<AttachedFile[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -200,26 +200,38 @@ function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute
                 <h3 className="text-2xl font-bold text-white">{mission.title}</h3>
                 <p className="text-gray-500 text-sm mt-1">@ {mission.company_name}</p>
             </div>
-            {mission.type && (
-                <span className={`px-3 py-1 rounded text-[10px] uppercase font-bold tracking-widest border 
-                    ${mission.type === 'weekly' ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' : 
-                      mission.type === 'monthly' ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' : 
-                      'bg-yellow-900/20 text-yellow-400 border-yellow-500/30'}`}>
-                    {mission.type}
-                </span>
-            )}
+            
+            <div className="flex gap-3">
+                {mission.type && (
+                    <span className={`px-3 py-1 rounded text-[10px] uppercase font-bold tracking-widest border flex items-center justify-center
+                        ${mission.type === 'weekly' ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' : 
+                          mission.type === 'monthly' ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' : 
+                          'bg-yellow-900/20 text-yellow-400 border-yellow-500/30'}`}>
+                        {mission.type}
+                    </span>
+                )}
+                
+                {/* TASTO CHIUSURA MISSIONE (NUOVO) */}
+                <button 
+                    onClick={() => onComplete(mission.id)}
+                    className="px-3 py-1 rounded text-[10px] uppercase font-bold tracking-widest bg-red-900/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white transition-all flex items-center gap-2"
+                    title="Archivia missione e cancella memoria"
+                >
+                    <AlertTriangle className="w-3 h-3" /> Termina
+                </button>
+            </div>
         </div>
       </div>
       
       <div className="flex flex-col xl:flex-row items-stretch gap-6">
         <div className="flex-1 flex flex-col group relative">
-          <Label text="Chat Esecutiva" />
+          <Label text="Console Comandi (Agente)" />
           <div className="relative flex-1 bg-black/40 border border-gray-800 rounded-2xl overflow-hidden focus-within:border-indigo-500 transition-colors flex flex-col">
             <textarea 
               disabled={isExecuting} 
               value={localInput}
               onChange={(e) => setLocalInput(e.target.value)}
-              placeholder="Scrivi qui la tua richiesta o allega file di supporto..." 
+              placeholder="Dai ordini all'Agente (es. 'Analizza i file', 'Correggi il bug')..." 
               className="w-full flex-1 bg-transparent border-none p-6 text-sm text-gray-300 outline-none resize-none placeholder:text-gray-700 font-mono" 
             />
             <div className="p-4 border-t border-gray-800 bg-[#0a0a0c]/50 flex items-center justify-between">
@@ -243,14 +255,14 @@ function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute
 
         <div className="flex flex-col items-center justify-center px-4">
           {isExecuting ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" /> : 
-            <button onClick={triggerExecution} className="p-5 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 hover:scale-110 shadow-lg shadow-indigo-500/30 transition-all active:scale-95" title="Invia all'AI">
+            <button onClick={triggerExecution} className="p-5 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 hover:scale-110 shadow-lg shadow-indigo-500/30 transition-all active:scale-95" title="Esegui Comando">
               <ArrowRight className="w-6 h-6 text-white" />
             </button>
           }
         </div>
 
         <div className="flex-1 flex flex-col">
-          <Label text="Risposta AI (Latest)" />
+          <Label text="Output Agente" />
           <div className={`flex-1 rounded-2xl p-6 relative overflow-hidden min-h-[300px] transition-all duration-500 ${mission.final_work_content ? 'bg-emerald-950/10 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.05)]' : 'bg-black/40 border border-gray-800 border-dashed'}`}>
             {mission.final_work_content ? (
                 <pre className="text-xs text-emerald-100 font-mono whitespace-pre-wrap h-full overflow-y-auto custom-scrollbar leading-relaxed">
@@ -259,7 +271,7 @@ function ActiveMissionCard({ mission, onExecute }: { mission: Mission, onExecute
             ) : (
                 <div className="h-full flex flex-col items-center justify-center text-gray-700">
                     <Cpu className="w-12 h-12 mb-4 opacity-20" />
-                    <span className="text-xs font-medium uppercase tracking-widest opacity-50">In attesa di input...</span>
+                    <span className="text-xs font-medium uppercase tracking-widest opacity-50">Pronto per l'orchestrazione...</span>
                 </div>
             )}
           </div>
@@ -427,18 +439,31 @@ export default function Dashboard() {
     try { await apiClient.post(`/missions/${id}/reject`); await fetchMissions(); setSelectedDevMissionId(""); showNotification("Missione rimossa.", 'success'); } catch (e) { showNotification("Errore rifiuto.", 'error'); }
   };
   const handleAccept = async (id: string) => {
-    try { await apiClient.patch(`/missions/${id}/status`, { status: 'active' }); await fetchMissions(); showNotification("Missione accettata!", 'success'); } catch (e) { showNotification("Errore accettazione.", 'error'); }
+    try { await apiClient.patch(`/missions/${id}/status`, { status: 'active' }); await fetchMissions(); showNotification("Missione accettata! Agente Attivato.", 'success'); } catch (e) { showNotification("Errore accettazione.", 'error'); }
   };
 
   const handleExecuteProxy = async (id: string, text: string, files: AttachedFile[]) => {
     try {
       await apiClient.post(`/missions/${id}/execute`, { clientRequirements: text, attachments: files });
       await fetchMissions();
-      showNotification("Lavoro completato dall'AI!", 'success');
+      showNotification("Risposta Agente Ricevuta!", 'success');
     } catch (e) { 
         showNotification("Errore esecuzione. Verifica stato missione.", 'error'); 
         throw e; 
     } 
+  };
+
+  // NUOVO HANDLER: COMPLETAMENTO MISSIONE
+  const handleComplete = async (id: string) => {
+      if(!confirm("⚠️ ATTENZIONE: Confermi il completamento? \n\nLa memoria dell'agente per questa missione verrà CANCELLATA irreversibilmente.\nNon potrai più interagire con questo contesto.")) return;
+      
+      try {
+          await apiClient.post(`/missions/${id}/complete`);
+          showNotification("Missione completata e archiviata.", 'success');
+          await fetchMissions();
+      } catch (e) { 
+          showNotification("Errore durante il completamento.", 'error'); 
+      }
   };
 
   const currentDevMission = developedMissions.find(m => m.id === selectedDevMissionId) || developedMissions[0];
@@ -566,13 +591,13 @@ export default function Dashboard() {
           </GlassCard>
         </section>
 
-        {/* 3. ESECUZIONE & DELIVERY (CHAT MODE) */}
+        {/* 3. ESECUZIONE & DELIVERY (AGENTE AUTONOMO) */}
         <section>
-          <SectionHeader title="3. Esecuzione & Delivery" icon={Briefcase} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" />
+          <SectionHeader title="3. Esecuzione & Delivery (Agente)" icon={Briefcase} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" />
           <div className="space-y-12">
-            {activeMissions.length === 0 && <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-3xl opacity-50"><p className="text-gray-500">Nessuna missione in corso.</p></div>}
+            {activeMissions.length === 0 && <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-3xl opacity-50"><p className="text-gray-500">Nessuna missione in corso. Attiva una missione dal Laboratorio Tattico.</p></div>}
             {activeMissions.map(mission => (
-              <ActiveMissionCard key={mission.id} mission={mission} onExecute={handleExecuteProxy} />
+              <ActiveMissionCard key={mission.id} mission={mission} onExecute={handleExecuteProxy} onComplete={handleComplete} />
             ))}
           </div>
         </section>

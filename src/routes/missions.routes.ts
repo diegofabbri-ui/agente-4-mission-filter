@@ -43,7 +43,7 @@ missionsRouter.post('/hunt', authMiddleware, async (req: any, res) => {
   } catch (error: any) { handleQuotaError(error, res); }
 });
 
-// 2. CACCIA WEEKLY (QUESTA E' QUELLA CHE TI DAVA 404)
+// 2. CACCIA WEEKLY
 missionsRouter.post('/hunt/weekly', authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user.userId;
@@ -58,7 +58,7 @@ missionsRouter.post('/hunt/weekly', authMiddleware, async (req: any, res) => {
   } catch (error: any) { handleQuotaError(error, res); }
 });
 
-// 3. CACCIA MONTHLY (ANCHE QUESTA MANCAVA)
+// 3. CACCIA MONTHLY
 missionsRouter.post('/hunt/monthly', authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user.userId;
@@ -100,6 +100,16 @@ missionsRouter.post('/:id/execute', authMiddleware, async (req: any, res) => {
   } catch (e: any) { 
       const msg = e.message.includes("LIMITE") ? e.message : "Errore esecuzione.";
       res.status(500).json({ error: msg }); 
+  }
+});
+
+// NUOVA ROTTA: CHIUSURA MISSIONE & PULIZIA MEMORIA
+missionsRouter.post('/:id/complete', authMiddleware, async (req: any, res) => {
+  try {
+    await developerService.completeMission(req.params.id);
+    res.json({ success: true, message: "Missione completata. Memoria cancellata." });
+  } catch (e) { 
+      res.status(500).json({ error: "Errore completamento missione." }); 
   }
 });
 

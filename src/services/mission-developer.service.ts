@@ -9,7 +9,7 @@ import { db } from '../infra/db';
 // ==================================================================================
 const AI_CONFIG = {
   openai: {
-    model: 'gpt-5.1-chat-latest', // Genius Model
+    model: 'gpt-5.1-chat-latest', // O 'gpt-4o' a seconda della disponibilità
   },
   gemini: {
     model: 'gemini-2.5-pro',
@@ -71,7 +71,7 @@ export class MissionDeveloperService {
     }
   }
 
-  // --- HELPER: SOSTITUZIONE TAG GLOBALE (FIX CRITICO PER I BONUS) ---
+  // --- HELPER: SOSTITUZIONE TAG GLOBALE ---
   private replaceTags(template: string, data: Record<string, string>): string {
       let result = template;
       for (const [key, value] of Object.entries(data)) {
@@ -82,7 +82,7 @@ export class MissionDeveloperService {
   }
 
   // ==================================================================================
-  // 1️⃣ FASE STRATEGICA: SVILUPPO CONTEXT-AWARE
+  // 1️⃣ FASE STRATEGICA: SVILUPPO CONTEXT-AWARE (LAYOUT 2)
   // ==================================================================================
   public async developStrategy(missionId: string): Promise<FinalMissionPackage> {
     console.log(`\n⚙️ [DEV] Sviluppo Strategia Completa: ${missionId}`);
@@ -128,7 +128,7 @@ export class MissionDeveloperService {
     const finalPromptCand = this.replaceTags(rawPromptCand, contextData);
     const approvedCandidacy = await this.simpleGptCall(finalPromptCand);
 
-    // B. Generazione Bonus Asset (FIX: Ora riceve i dati corretti)
+    // B. Generazione Bonus Asset (FIX: Ora riceve i dati skill corretti)
     let rawPromptBonus = this.loadPrompt(bonusFile) || "Generate strategic bonus asset.";
     const finalPromptBonus = this.replaceTags(rawPromptBonus, contextData);
     const approvedBonus = await this.simpleGptCall(finalPromptBonus);
@@ -150,22 +150,84 @@ export class MissionDeveloperService {
   }
 
   // ==================================================================================
-  // 2️⃣ ESECUZIONE CHAT (Project Manager)
+  // 2️⃣ ESECUZIONE CHAT (AGENTE AUTONOMO - LAYOUT 3)
   // ==================================================================================
   public async executeChatStep(missionId: string, userId: string, userInput: string, attachments: any[] = []): Promise<string> {
       console.log(`\n💬 [EXEC] Chat Step: ${missionId}`);
 
+      // 1. Recupero dati missione
       const mission = await db.selectFrom('missions')
-        .select(['id', 'title', 'description', 'final_deliverable_json', 'conversation_history', 'command_count', 'max_commands', 'type'])
+        .select(['id', 'title', 'description', 'final_deliverable_json', 'conversation_history', 'command_count', 'max_commands', 'type', 'raw_data', 'status'])
         .where('id', '=', missionId)
         .executeTakeFirst();
 
       if (!mission) throw new Error("Missione non trovata.");
 
-      const currentStep = (mission.command_count || 0) + 1;
-      const maxSteps = mission.max_commands || 20;
-      if (currentStep > maxSteps) return "⛔ LIMITE MISSIONE RAGGIUNTO.";
+      const currentStep = mission.command_count || 0;
+      
+      // 2. Controllo Stato Completamento
+      if (mission.status === 'completed') {
+          return "🔒 Missione Archiviata. La memoria è stata resettata. Avvia una nuova missione.";
+      }
 
+      // 3. Gestione Allegati nell'Input
+      let inputWithAttachments = userInput;
+      let attachmentsListStr = "Nessuno";
+      if (attachments && attachments.length > 0) {
+          inputWithAttachments += `\n\n--- [SYSTEM: USER ATTACHMENTS] ---\n`;
+          attachmentsListStr = attachments.map(f => f.name).join(", ");
+          attachments.forEach((file, idx) => {
+              // Tronchiamo file giganti per non rompere il context window
+              const contentPreview = file.content.length > 50000 ? file.content.substring(0, 50000) + "... [TRUNCATED]" : file.content;
+              inputWithAttachments += `FILE ${idx+1} (${file.name}):\n${contentPreview}\n----------------\n`;
+          });
+      }
+
+      // 4. LOGICA BIFORCATA: ARCHITETTO vs OPERAIO
+      let finalResponse = "";
+      let updatedRawData = typeof mission.raw_data === 'string' ? JSON.parse(mission.raw_data) : (mission.raw_data || {});
+
+      // --- CASO A: PRIMO STEP (ORCHESTRAZIONE) ---
+      if (currentStep === 0) {
+          console.log("🏗️ [AGENTE] Generazione Piano di Orchestrazione...");
+          
+          let orchestratorPrompt = this.loadPrompt('prompt_orchestrator.md');
+          orchestratorPrompt = orchestratorPrompt
+              .replace('{{USER_INPUT}}', userInput)
+              .replace('{{ATTACHMENTS_LIST}}', attachmentsListStr);
+
+          // Chiamata AI per generare il piano
+          finalResponse = await this.simpleGptCall(orchestratorPrompt);
+          
+          // SALVIAMO IL PIANO NELLA "MEMORIA A LUNGO TERMINE" (DB)
+          updatedRawData.orchestration_plan = finalResponse;
+      } 
+      
+      // --- CASO B: STEP SUCCESSIVI (ESECUZIONE WORKER) ---
+      else {
+          console.log(`🔨 [AGENTE] Esecuzione Step ${currentStep + 1}...`);
+          
+          // Recuperiamo il piano dalla memoria DB
+          const masterPlan = updatedRawData.orchestration_plan || "⚠️ NESSUN PIANO TROVATO. Procedi con best practice.";
+          
+          let workerPrompt = this.loadPrompt('prompt_worker.md');
+          workerPrompt = workerPrompt
+              .replace('{{ORCHESTRATION_PLAN}}', masterPlan)
+              .replace('{{USER_INPUT}}', userInput);
+
+          // Recuperiamo la storia della chat (MEMORIA DI CONTESTO)
+          let history: any[] = [];
+          if (typeof mission.conversation_history === 'string') {
+              history = JSON.parse(mission.conversation_history);
+          } else if (Array.isArray(mission.conversation_history)) {
+              history = mission.conversation_history;
+          }
+
+          // Eseguiamo il loop di lavoro con la memoria attiva
+          finalResponse = await this.runExecutionLoop(workerPrompt, history.slice(-15), inputWithAttachments);
+      }
+
+      // 5. AGGIORNAMENTO MEMORIA E DB
       let history: any[] = [];
       if (typeof mission.conversation_history === 'string') {
           history = JSON.parse(mission.conversation_history);
@@ -173,57 +235,40 @@ export class MissionDeveloperService {
           history = mission.conversation_history;
       }
 
-      let inputWithAttachments = userInput;
-      if (attachments && attachments.length > 0) {
-          inputWithAttachments += `\n\n--- [SYSTEM: USER ATTACHMENTS] ---\n`;
-          attachments.forEach((file, idx) => {
-              const contentPreview = file.content.length > 50000 ? file.content.substring(0, 50000) + "... [TRUNCATED]" : file.content;
-              inputWithAttachments += `FILE ${idx+1} (${file.name}):\n${contentPreview}\n----------------\n`;
-          });
-      }
-
-      const pacingGuide = this.loadPrompt('guide_execution_pacing.md');
-      let promiseContext = "";
-      try {
-          const deliverable = typeof mission.final_deliverable_json === 'string' 
-            ? JSON.parse(mission.final_deliverable_json) 
-            : mission.final_deliverable_json;
-          promiseContext = deliverable?.deliverable_content || "N/A";
-      } catch(e) {}
-
-      const systemPrompt = `
-      ROLE: You are the Lead Genius Developer using ${AI_CONFIG.openai.model}.
-      --- CONTEXT ---
-      Title: ${mission.title}
-      Type: ${mission.type?.toUpperCase()}
-      Step: ${currentStep}/${maxSteps}
-      Initial Promise: "${promiseContext.substring(0, 800)}..."
-      --- GUIDE ---
-      ${pacingGuide}
-      --- RULES ---
-      1. EXECUTE: Write code, draft text, do the work.
-      2. FORMAT: Use Markdown, Code Blocks, Tables.
-      3. TONE: Expert Peer.
-      `;
-
-      const recentHistory = history.slice(-12); 
-      const finalResponse = await this.runExecutionLoop(systemPrompt, recentHistory, inputWithAttachments);
-
       const newMessageUser = { role: "user", content: inputWithAttachments, timestamp: new Date() };
       const newMessageAI = { role: "assistant", content: finalResponse, timestamp: new Date() };
+      
+      // Appendiamo alla storia
       const updatedHistory = [...history, newMessageUser, newMessageAI];
 
+      // Salviamo tutto
       await db.updateTable('missions')
         .set({
-            conversation_history: JSON.stringify(updatedHistory),
-            final_work_content: finalResponse,
-            command_count: currentStep,
-            status: currentStep >= maxSteps ? 'completed' : 'active'
+            conversation_history: JSON.stringify(updatedHistory), // Memoria attiva
+            raw_data: JSON.stringify(updatedRawData),             // Memoria orchestrale
+            final_work_content: finalResponse,                    // Ultimo output per la UI
+            command_count: currentStep + 1,
+            status: 'active' 
         })
         .where('id', '=', missionId)
         .execute();
 
       return finalResponse;
+  }
+
+  // ==================================================================================
+  // 3️⃣ METODI DI CHIUSURA MISSIONE
+  // ==================================================================================
+  public async completeMission(missionId: string): Promise<void> {
+      console.log(`🏁 [MISSION] Completamento e Pulizia: ${missionId}`);
+      await db.updateTable('missions')
+          .set({
+              status: 'completed',
+              conversation_history: JSON.stringify([]), // 🗑️ CANCELLA MEMORIA CHAT
+              // Nota: Manteniamo raw_data.orchestration_plan per audit, ma la chat è vuota.
+          })
+          .where('id', '=', missionId)
+          .execute();
   }
 
   // ==================================================================================
