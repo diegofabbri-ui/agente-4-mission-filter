@@ -9,7 +9,7 @@ import { db } from '../infra/db';
 // ==================================================================================
 const AI_CONFIG = {
   openai: {
-    model: 'gpt-5.1-chat-latest', // O 'gpt-4o' a seconda della disponibilità
+    model: 'gpt-5.1-chat-latest', // Modello "Reasoning" (o1-preview/mini). Richiede temperature=1.
   },
   gemini: {
     model: 'gemini-2.5-pro',
@@ -128,7 +128,7 @@ export class MissionDeveloperService {
     const finalPromptCand = this.replaceTags(rawPromptCand, contextData);
     const approvedCandidacy = await this.simpleGptCall(finalPromptCand);
 
-    // B. Generazione Bonus Asset (FIX: Ora riceve i dati skill corretti)
+    // B. Generazione Bonus Asset
     let rawPromptBonus = this.loadPrompt(bonusFile) || "Generate strategic bonus asset.";
     const finalPromptBonus = this.replaceTags(rawPromptBonus, contextData);
     const approvedBonus = await this.simpleGptCall(finalPromptBonus);
@@ -177,7 +177,6 @@ export class MissionDeveloperService {
           inputWithAttachments += `\n\n--- [SYSTEM: USER ATTACHMENTS] ---\n`;
           attachmentsListStr = attachments.map(f => f.name).join(", ");
           attachments.forEach((file, idx) => {
-              // Tronchiamo file giganti per non rompere il context window
               const contentPreview = file.content.length > 50000 ? file.content.substring(0, 50000) + "... [TRUNCATED]" : file.content;
               inputWithAttachments += `FILE ${idx+1} (${file.name}):\n${contentPreview}\n----------------\n`;
           });
@@ -196,18 +195,17 @@ export class MissionDeveloperService {
               .replace('{{USER_INPUT}}', userInput)
               .replace('{{ATTACHMENTS_LIST}}', attachmentsListStr);
 
-          // Chiamata AI per generare il piano
           finalResponse = await this.simpleGptCall(orchestratorPrompt);
           
-          // SALVIAMO IL PIANO NELLA "MEMORIA A LUNGO TERMINE" (DB)
+          // SALVIAMO IL PIANO NELLA "MEMORIA A LUNGO TERMINE"
           updatedRawData.orchestration_plan = finalResponse;
+          console.log("📄 [DEBUG] PIANO SALVATO:\n", finalResponse);
       } 
       
       // --- CASO B: STEP SUCCESSIVI (ESECUZIONE WORKER) ---
       else {
           console.log(`🔨 [AGENTE] Esecuzione Step ${currentStep + 1}...`);
           
-          // Recuperiamo il piano dalla memoria DB
           const masterPlan = updatedRawData.orchestration_plan || "⚠️ NESSUN PIANO TROVATO. Procedi con best practice.";
           
           let workerPrompt = this.loadPrompt('prompt_worker.md');
@@ -215,7 +213,6 @@ export class MissionDeveloperService {
               .replace('{{ORCHESTRATION_PLAN}}', masterPlan)
               .replace('{{USER_INPUT}}', userInput);
 
-          // Recuperiamo la storia della chat (MEMORIA DI CONTESTO)
           let history: any[] = [];
           if (typeof mission.conversation_history === 'string') {
               history = JSON.parse(mission.conversation_history);
@@ -223,7 +220,6 @@ export class MissionDeveloperService {
               history = mission.conversation_history;
           }
 
-          // Eseguiamo il loop di lavoro con la memoria attiva
           finalResponse = await this.runExecutionLoop(workerPrompt, history.slice(-15), inputWithAttachments);
       }
 
@@ -238,15 +234,13 @@ export class MissionDeveloperService {
       const newMessageUser = { role: "user", content: inputWithAttachments, timestamp: new Date() };
       const newMessageAI = { role: "assistant", content: finalResponse, timestamp: new Date() };
       
-      // Appendiamo alla storia
       const updatedHistory = [...history, newMessageUser, newMessageAI];
 
-      // Salviamo tutto
       await db.updateTable('missions')
         .set({
-            conversation_history: JSON.stringify(updatedHistory), // Memoria attiva
-            raw_data: JSON.stringify(updatedRawData),             // Memoria orchestrale
-            final_work_content: finalResponse,                    // Ultimo output per la UI
+            conversation_history: JSON.stringify(updatedHistory),
+            raw_data: JSON.stringify(updatedRawData),
+            final_work_content: finalResponse,
             command_count: currentStep + 1,
             status: 'active' 
         })
@@ -264,20 +258,24 @@ export class MissionDeveloperService {
       await db.updateTable('missions')
           .set({
               status: 'completed',
-              conversation_history: JSON.stringify([]), // 🗑️ CANCELLA MEMORIA CHAT
-              // Nota: Manteniamo raw_data.orchestration_plan per audit, ma la chat è vuota.
+              conversation_history: JSON.stringify([]), // 🗑️ PULIZIA MEMORIA
           })
           .where('id', '=', missionId)
           .execute();
   }
 
   // ==================================================================================
-  // UTILS
+  // UTILS: IL LOOP DI ESECUZIONE & AUDIT (GPT <-> GEMINI)
   // ==================================================================================
   private async runExecutionLoop(systemPrompt: string, history: any[], userInput: string): Promise<string> {
       let currentDraft = "";
       let loopCount = 0;
       let approved = false;
+      let critiqueLog = [];
+
+      const auditorMetrics = this.loadPrompt('prompt_2_gemini_auditor_metrics.md');
+      const auditorSchema = this.loadPrompt('prompt_3_gemini_auditor_output.json');
+      const fixerPromptTemplate = this.loadPrompt('prompt_5_gpt_fixer_loop.md');
 
       const messagesForGPT = [
           { role: "system", content: systemPrompt },
@@ -285,41 +283,67 @@ export class MissionDeveloperService {
           { role: "user", content: userInput }
       ];
 
-      while (loopCount <= AI_CONFIG.system.max_loops && !approved) {
+      console.log(`🔄 [LOOP] Avvio ciclo di perfezionamento (Max: ${AI_CONFIG.system.max_loops})...`);
+
+      while (loopCount < AI_CONFIG.system.max_loops && !approved) {
           loopCount++;
+          console.log(`   ► Iterazione ${loopCount}/${AI_CONFIG.system.max_loops}`);
+
+          // 1. GPT GENERA
           try {
               const res = await this.openai.chat.completions.create({
                   model: AI_CONFIG.openai.model, 
                   messages: messagesForGPT as any,
-                  temperature: 0.3 
+                  // ⚠️ FIX CRITICO: Rimosso 'temperature' per compatibilità con modelli o1/gpt-5.1
               });
               currentDraft = res.choices[0].message.content || "";
           } catch (e: any) {
-              console.error(`AI Error (${AI_CONFIG.openai.model}):`, e.message);
-              return "Errore tecnico generazione.";
+              console.error(`❌ GPT Error:`, e.message);
+              return "Errore tecnico generazione. Controllare i log.";
           }
 
-          if (currentDraft.length < 50 || loopCount > AI_CONFIG.system.max_loops) {
+          if (currentDraft.length < 50 || loopCount >= AI_CONFIG.system.max_loops) {
               approved = true;
               break;
           }
 
-          // Audit Semplificato (Gemini)
+          // 2. GEMINI AUDITA
           try {
-              const auditPrompt = `
-              ROLE: QA Auditor.
-              REQ: "${userInput.substring(0, 500)}..."
-              DRAFT: "${currentDraft.substring(0, 2000)}..."
-              OUTPUT JSON: { "approved": boolean, "critique": "string" }
+              const auditPromptFull = `
+              ${auditorMetrics}
+              ---
+              **INPUT CONTEXT:** "${userInput.substring(0, 1000)}..."
+              **EXECUTOR DRAFT:** \`\`\`${currentDraft.substring(0, 15000)}\`\`\`
+              **OUTPUT SCHEMA:** ${auditorSchema}
               `;
-              const auditRes = await this.geminiModel.generateContent(auditPrompt);
+
+              const auditRes = await this.geminiModel.generateContent(auditPromptFull);
               const auditJson = this.safeJsonParse(auditRes.response.text());
-              if (auditJson && !auditJson.approved) {
+
+              if (auditJson && auditJson.status === "PASS") {
+                  console.log("✅ [GEMINI] Draft Approvato!");
+                  approved = true;
+              } else if (auditJson) {
+                  console.log("❌ [GEMINI] Rifiutato. Critiche:", JSON.stringify(auditJson.critique).substring(0, 100));
+                  
+                  let fixerPrompt = fixerPromptTemplate
+                      .replace('[ITERATION_NUMBER]', loopCount.toString())
+                      .replace('[PREVIOUS_DRAFT]', "Vedi bozza precedente")
+                      .replace('[GEMINI_CRITIQUE]', JSON.stringify(auditJson.critique));
+
                   messagesForGPT.push({ role: "assistant", content: currentDraft });
-                  messagesForGPT.push({ role: "system", content: `FIX: ${auditJson.critique}` });
-              } else approved = true;
-          } catch (e) { approved = true; }
+                  messagesForGPT.push({ role: "system", content: fixerPrompt });
+                  
+                  critiqueLog.push(auditJson.critique);
+              } else {
+                  approved = true;
+              }
+          } catch (e) { 
+              console.error("⚠️ Errore critico Loop Audit:", e);
+              approved = true; 
+          }
       }
+
       return currentDraft;
   }
 
@@ -328,6 +352,7 @@ export class MissionDeveloperService {
           const res = await this.openai.chat.completions.create({
               model: AI_CONFIG.openai.model,
               messages: [{ role: "system", content: prompt }]
+              // ⚠️ FIX: No temperature qui
           });
           return res.choices[0].message.content || "";
       } catch (e: any) { 
@@ -338,7 +363,6 @@ export class MissionDeveloperService {
 
   private async gptPackageWithRetry(candidacy: string, bonus: string, contextData: any): Promise<FinalMissionPackage> {
     const templatePackage = this.loadPrompt('prompt_4_frontend_package.md') || "Package JSON.";
-    // Sostituiamo anche qui tutti i tag per sicurezza
     let finalPrompt = this.replaceTags(templatePackage, contextData);
     
     finalPrompt = finalPrompt
@@ -350,6 +374,7 @@ export class MissionDeveloperService {
            model: AI_CONFIG.openai.model, 
            messages: [{ role: "system", content: finalPrompt }],
            response_format: { type: "json_object" }
+           // ⚠️ FIX: No temperature qui
        });
        return JSON.parse(res.choices[0].message.content || "{}");
     } catch(e) {
@@ -357,7 +382,7 @@ export class MissionDeveloperService {
             deliverable_content: candidacy || "Errore Candidatura", 
             bonus_material_title: "Strategic Asset", 
             bonus_material_content: bonus || "Errore Bonus", 
-            strategy_brief: "Strategia pronta per l'invio.", 
+            strategy_brief: "Strategia pronta.", 
             execution_steps: ["1. Copia candidatura", "2. Allega bonus", "3. Invia"], 
             estimated_impact: "Alto", 
             is_immediate_task: true, 
