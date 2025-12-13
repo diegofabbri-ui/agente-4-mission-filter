@@ -3,7 +3,7 @@ import apiClient from '../lib/apiClient';
 import { 
   User, ChevronDown, ChevronUp, Play, 
   CheckCircle, XCircle, ArrowRight, Briefcase, 
-  Loader2, Sparkles, Cpu, Activity, Lock, Search, Radar, AlertTriangle, ExternalLink, Paperclip, File as FileIcon, Zap, Calendar, Award
+  Loader2, Sparkles, Cpu, Activity, Lock, Search, Radar, AlertTriangle, ExternalLink, Paperclip, File as FileIcon, Zap, Calendar, Award, Download
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -189,13 +189,29 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
     setIsExecuting(true);
     try {
         await onExecute(mission.id, localInput, localAttachments);
-        setLocalInput(""); // Pulisce solo dopo avvio con successo
+        setLocalInput(""); // Pulisce i campi SOLO se successo
         setLocalAttachments([]);
     } catch (e) {
-        console.error("Errore avvio comando:", e);
+        console.error("Errore nell'esecuzione del comando:", e);
     } finally {
-        setIsExecuting(false);
+        setIsExecuting(false); 
     }
+  };
+
+  const handleDownload = () => {
+      if (!mission.final_work_content) return;
+      
+      const blob = new Blob([mission.final_work_content], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Mission_${mission.id.substring(0,8)}_Output.md`;
+      document.body.appendChild(a);
+      a.click();
+      
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
   };
 
   return (
@@ -217,7 +233,6 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
                     </span>
                 )}
                 
-                {/* TASTO CHIUSURA MISSIONE */}
                 <button 
                     onClick={() => onComplete(mission.id)}
                     className="px-3 py-1 rounded text-[10px] uppercase font-bold tracking-widest bg-red-900/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white transition-all flex items-center gap-2"
@@ -268,7 +283,18 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
         </div>
 
         <div className="flex-1 flex flex-col">
-          <Label text="Output Agente" />
+          <div className="flex justify-between items-center mb-3 pl-1 border-l-2 border-indigo-500/50">
+             <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em]">Output Agente</h4>
+             {mission.final_work_content && (
+                 <button 
+                    onClick={handleDownload}
+                    className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition-colors uppercase tracking-wider bg-emerald-900/20 px-2 py-1 rounded border border-emerald-500/20 hover:border-emerald-500/50"
+                 >
+                    <Download className="w-3 h-3" /> Scarica .MD
+                 </button>
+             )}
+          </div>
+
           <div className={`flex-1 rounded-2xl p-6 relative overflow-hidden min-h-[300px] transition-all duration-500 ${mission.final_work_content ? 'bg-emerald-950/10 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.05)]' : 'bg-black/40 border border-gray-800 border-dashed'}`}>
             {mission.final_work_content ? (
                 <pre className="text-xs text-emerald-100 font-mono whitespace-pre-wrap h-full overflow-y-auto custom-scrollbar leading-relaxed">
