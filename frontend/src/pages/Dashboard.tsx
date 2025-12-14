@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import apiClient from '../lib/apiClient';
 import { 
-  User, ChevronDown, ChevronUp, Play, 
-  CheckCircle, XCircle, ArrowRight, Briefcase, 
-  Loader2, Sparkles, Cpu, Activity, Lock, Search, Radar, AlertTriangle, ExternalLink, Paperclip, File as FileIcon, Zap, Calendar, Award, Download
+  User, Play, CheckCircle, XCircle, ArrowRight, Briefcase, 
+  Loader2, Cpu, Lock, Radar, AlertTriangle, ExternalLink, Paperclip, 
+  File as FileIcon, Zap, Calendar, Award, FileCode, FileText, Download
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -29,6 +29,7 @@ interface Mission {
   platform?: string;
   type?: 'daily' | 'weekly' | 'monthly';
   raw_data?: any;
+  command_count?: number; 
 }
 
 interface AttachedFile { 
@@ -52,6 +53,53 @@ const readFileContent = (file: File): Promise<string> => {
       reader.onload = () => resolve(reader.result as string);
       reader.onerror = error => reject(error);
   });
+};
+
+// --- LOGICA INTELLIGENTE DI RILEVAMENTO CONTENUTO ---
+const detectContentFormat = (content: string, commandCount: number = 0) => {
+    const c = content.trim();
+
+    // 1. PRIORITÀ ASSOLUTA: Il Primo Step (Piano/Orchestrazione) è SEMPRE Markdown
+    // Questo garantisce che la spunta delle checkbox funzioni e il piano sia leggibile
+    if (commandCount <= 1) {
+        return { ext: 'md', mime: 'text/markdown', icon: FileText };
+    }
+
+    // 2. ANALISI CODICE (Rilevamento Euristico)
+    
+    // Python
+    if (c.includes('def ') && c.includes(':') && (c.includes('import ') || c.includes('print(') || c.includes('class '))) {
+        return { ext: 'py', mime: 'text/x-python', icon: FileCode };
+    }
+    // React / TSX
+    if ((c.includes('import React') || c.includes('export default function')) && c.includes('<')) {
+        return { ext: 'tsx', mime: 'text/typescript', icon: FileCode };
+    }
+    // Typescript / Javascript
+    if ((c.includes('const ') || c.includes('let ') || c.includes('function ')) && (c.includes('=>') || c.includes(';') || c.includes('console.log'))) {
+        return { ext: 'ts', mime: 'application/typescript', icon: FileCode };
+    }
+    // JSON
+    if (c.startsWith('{') && c.endsWith('}')) {
+        return { ext: 'json', mime: 'application/json', icon: FileCode };
+    }
+    // SQL
+    if ((c.toLowerCase().startsWith('select') || c.toLowerCase().startsWith('create') || c.toLowerCase().startsWith('insert')) && c.includes(';')) {
+        return { ext: 'sql', mime: 'application/sql', icon: FileCode };
+    }
+    // HTML
+    if (c.toLowerCase().includes('<!doctype html') || c.includes('<html>')) {
+        return { ext: 'html', mime: 'text/html', icon: FileCode };
+    }
+    // CSS
+    if (c.includes('{') && c.includes('}') && c.includes(':') && c.includes(';') && !c.includes('const ')) {
+        return { ext: 'css', mime: 'text/css', icon: FileCode };
+    }
+
+    // 3. FALLBACK INTELLIGENTE A MARKDOWN (invece di TXT)
+    // Se non è codice puro, ma contiene testo strutturato, scarichiamo come .md
+    // Questo risolve il problema dei file scaricati come .txt che perdono la formattazione
+    return { ext: 'md', mime: 'text/markdown', icon: FileText };
 };
 
 // ==================================================================================
@@ -201,18 +249,28 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
   const handleDownload = () => {
       if (!mission.final_work_content) return;
       
-      const blob = new Blob([mission.final_work_content], { type: 'text/markdown' });
+      const stepNumber = mission.command_count || 0;
+      
+      // Calcola estensione e tipo MIME in modo intelligente
+      const fileInfo = detectContentFormat(mission.final_work_content, stepNumber);
+
+      const blob = new Blob([mission.final_work_content], { type: fileInfo.mime });
       const url = URL.createObjectURL(blob);
       
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Mission_${mission.id.substring(0,8)}_Output.md`;
+      // Nome file: "MissionID_StepX.ext"
+      a.download = `Mission_${mission.id.substring(0,8)}_Step${stepNumber}.${fileInfo.ext}`;
       document.body.appendChild(a);
       a.click();
       
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
   };
+
+  // Ottieni info sul file solo per l'Icona (il testo è fisso)
+  const fileInfo = detectContentFormat(mission.final_work_content || "", mission.command_count || 0);
+  const DownloadIcon = fileInfo.icon;
 
   return (
     <GlassCard className="p-8 border-l-4 border-l-emerald-500">
@@ -246,7 +304,7 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
       
       <div className="flex flex-col xl:flex-row items-stretch gap-6">
         <div className="flex-1 flex flex-col group relative">
-          <Label text="Console Comandi (Agente)" />
+          <Label text={`Console Comandi (Step ${mission.command_count || 0})`} />
           <div className="relative flex-1 bg-black/40 border border-gray-800 rounded-2xl overflow-hidden focus-within:border-indigo-500 transition-colors flex flex-col">
             <textarea 
               disabled={isExecuting} 
@@ -288,9 +346,9 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
              {mission.final_work_content && (
                  <button 
                     onClick={handleDownload}
-                    className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition-colors uppercase tracking-wider bg-emerald-900/20 px-2 py-1 rounded border border-emerald-500/20 hover:border-emerald-500/50"
+                    className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition-colors uppercase tracking-wider bg-emerald-900/20 px-3 py-1.5 rounded border border-emerald-500/20 hover:border-emerald-500/50"
                  >
-                    <Download className="w-3 h-3" /> Scarica .MD
+                    <DownloadIcon className="w-3 h-3" /> Scarica
                  </button>
              )}
           </div>
