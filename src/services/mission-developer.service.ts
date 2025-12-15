@@ -190,10 +190,33 @@ export class MissionDeveloperService {
       if (currentStep === 0) {
           console.log("🏗️ [AGENTE] Generazione Piano di Orchestrazione...");
           
+          // >>> START MODIFICA: RECUPERO STRATEGIA APPROVATA <<<
+          let approvedStrategyContext = "Nessuna strategia specifica pregressa. Basati sulla richiesta utente.";
+          
+          if (mission.final_deliverable_json) {
+             const strat = typeof mission.final_deliverable_json === 'string' 
+                ? JSON.parse(mission.final_deliverable_json) 
+                : mission.final_deliverable_json;
+             
+             // Costruiamo il contesto strategico da passare all'Agente
+             approvedStrategyContext = `
+             **STRATEGY BRIEF:** ${strat.strategy_brief || 'N/A'}
+             
+             **CANDIDACY / COVER LETTER (WHAT WE PROMISED):**
+             ${strat.deliverable_content || 'N/A'}
+             
+             **BONUS ASSET (TECHNICAL BASELINE):**
+             ${strat.bonus_material_content || 'N/A'}
+             `;
+          }
+          // >>> END MODIFICA <<<
+
           let orchestratorPrompt = this.loadPrompt('prompt_orchestrator.md');
           orchestratorPrompt = orchestratorPrompt
               .replace('{{USER_INPUT}}', userInput)
-              .replace('{{ATTACHMENTS_LIST}}', attachmentsListStr);
+              .replace('{{ATTACHMENTS_LIST}}', attachmentsListStr)
+              // Iniettiamo la strategia nel prompt
+              .replace('{{APPROVED_STRATEGY}}', approvedStrategyContext); 
 
           finalResponse = await this.simpleGptCall(orchestratorPrompt);
           
