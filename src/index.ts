@@ -1,117 +1,66 @@
-import express, { Request, Response, NextFunction } from "express";
-import cors from "cors";
-import morgan from "morgan";
-import * as Sentry from "@sentry/node";
-import dotenv from "dotenv";
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import './infra/db'; // Inizializza la connessione al DB
+import { authRouter } from './routes/auth.routes';
+import { missionsRouter } from './routes/missions.routes';
+import { userRouter } from './routes/user.routes'; // Import corretto con parentesi graffe
+import { authMiddleware } from './middleware/auth.middleware';
+import { startScheduler } from './cron/scheduler';
 
-// Carica variabili d'ambiente
 dotenv.config();
 
-// Import Infrastruttura Database
-import { db } from "./infra/db";
-
-// Import Scheduler (Il Cacciatore Automatico)
-import { initScheduler } from "./cron/scheduler";
-
-// Import Rotte
-import { missionsRouter } from "./routes/missions.routes";
-import { authRouter } from "./routes/auth.routes";
-import userRouter from "./routes/user.routes";
-
-// --------------------------------------------------
-// 1. BOOTSTRAP
-// --------------------------------------------------
-console.log("BOOT: System starting...");
-
-if (process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    tracesSampleRate: 1.0,
-  });
-  console.log("BOOT: Sentry initialized");
+// Verifica preliminare delle chiavi API critiche
+if (!process.env.OPENAI_API_KEY || !process.env.PERPLEXITY_API_KEY || !process.env.GEMINI_API_KEY) {
+  console.warn("⚠️ ATTENZIONE: Alcune API KEYS mancano nel .env (OPENAI, PERPLEXITY o GEMINI). Il sistema potrebbe non funzionare correttamente.");
 }
 
 const app = express();
+const port = process.env.PORT || 8080;
 
-// --------------------------------------------------
-// 2. CONFIGURAZIONE & MIDDLEWARE
-// --------------------------------------------------
+// Configurazione Middleware
+app.use(cors()); // Abilita CORS per il frontend
+app.use(express.json()); // Parsing del body JSON delle richieste
 
-// Dependency Injection: Rendiamo il DB accessibile in tutte le rotte
-app.set("db", db);
+// Middleware di logging per debug
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
-app.use(
-  cors({
-    origin: "*", // Nota: In produzione, restringi ai domini del tuo frontend
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-app.use(express.json());
-app.use(morgan("dev")); // Logging delle richieste HTTP
-
-// --------------------------------------------------
-// 3. HEALTHCHECK (Per Railway)
-// --------------------------------------------------
-const basicHealthHandler = (_req: Request, res: Response) => {
-  res.status(200).json({
-    status: "ok",
-    service: "Agente 4 Backend Core",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
-};
-
-app.get("/", basicHealthHandler);
-app.get("/api/health", basicHealthHandler);
-
-// --------------------------------------------------
-// 4. ROTTE API
-// --------------------------------------------------
 console.log("BOOT: Mounting routes...");
 
-// Autenticazione e Profilo
-app.use("/api/auth", authRouter);
-app.use("/api/user", userRouter);
+// --- DEFINIZIONE ROTTE ---
 
-// Core Business: Missioni (Ricerca, Sviluppo, Esecuzione)
-app.use("/api/missions", missionsRouter);
+// Autenticazione (Login/Register) - Pubbliche
+app.use('/api/auth', authRouter);
 
-// --------------------------------------------------
-// 5. GESTIONE ERRORI GLOBALE
-// --------------------------------------------------
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("UNHANDLED ERROR:", err);
-  const eventId = Sentry.captureException(err);
+// Missioni (Caccia, Sviluppo, Esecuzione) - Protette
+app.use('/api/missions', authMiddleware, missionsRouter);
 
-  if (!res.headersSent) {
-    res.status(500).json({
-      error: "server_error",
-      message: "Errore interno del server.",
-      eventId,
-    });
-  }
+// Utente (Profilo, Manifesto, Settings) - Protette
+app.use('/api/user', authMiddleware, userRouter);
+
+// Health Check (per Railway/Monitoraggio)
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date() });
 });
 
-// 404 Handler
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ error: "not_found", message: "Endpoint non trovato" });
+// Gestione Errori Globale
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("🔥 Errore non gestito:", err);
+  res.status(500).json({ error: "Errore interno del server" });
 });
 
-// --------------------------------------------------
-// 6. AVVIO SERVER
-// --------------------------------------------------
-const port = Number(process.env.PORT) || 3000;
-
+// --- AVVIO SERVER ---
 app.listen(port, () => {
   console.log(`🚀 Backend listening on port ${port}`);
-
-  // Avvio del "Cacciatore" (Cron Job per la ricerca automatica)
-  console.log("⏰ Starting The Hunter scheduler...");
-  initScheduler();
   
-  console.log("✅ BOOT COMPLETE: System ready.");
+  // Avvio Cron Job per la caccia automatica
+  try {
+    startScheduler();
+    console.log("⏰ Scheduler 'The Hunter' avviato.");
+  } catch (e) {
+    console.error("❌ Errore nell'avvio dello Scheduler:", e);
+  }
 });
-
-export default app;
