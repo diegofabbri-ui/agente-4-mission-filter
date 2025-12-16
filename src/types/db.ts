@@ -2,7 +2,7 @@ import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
   users: UserTable;
-  missions: MissionTable;
+  missions: MissionsTable;
   user_ai_profile: UserAiProfileTable;
   mission_threads: MissionThreadTable;
   user_preferences: UserPreferencesTable;
@@ -19,8 +19,8 @@ interface UserTable {
   status: 'active' | 'inactive';
 }
 
-interface MissionTable {
-  id: string; // Modificato da Generated<string> a string per coerenza UUID
+interface MissionsTable {
+  id: string; 
   user_id: string | null;
   title: string;
   description: string | null;
@@ -39,8 +39,8 @@ interface MissionTable {
   final_deliverable_json: any | null;
   final_work_content: string | null;
   client_requirements: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
+  created_at: ColumnType<Date, string | undefined, never>;
+  updated_at: ColumnType<Date, string | undefined, never>;
   source: string | null;
   raw_data: any | null;
   type?: 'daily' | 'weekly' | 'monthly';
@@ -49,15 +49,18 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- FIX: AGGIUNTE COLONNE MANCANTI ---
-interface UserAiProfileTable {
-  id: string; // <--- MANCAVA: Fondamentale per le query select('id')
+// --- FIX CRITICO: AGGIUNTE COLONNE MANCANTI ---
+export interface UserAiProfileTable {
+  id: string; // <--- QUESTA MANCAVA E BLOCCAVA select('id')
   user_id: string;
-  full_name: string | null; // <--- MANCAVA
-  min_hourly_rate: number | null; // <--- MANCAVA
-  career_goal_json: any; // <--- MANCAVA (Nuovo sistema manifesto)
-  career_manifesto: any; // Legacy
-  weights: any;
+  full_name: string | null; // <--- QUESTA MANCAVA
+  min_hourly_rate: number | null; // <--- QUESTA MANCAVA
+  career_goal_json: any; // <--- QUESTA MANCAVA (Nuovo sistema manifesto)
+  
+  // Campi Legacy/Opzionali
+  career_manifesto?: any; 
+  weights?: any;
+  
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
