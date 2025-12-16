@@ -8,104 +8,137 @@ export class PerplexityService {
 
   constructor() {
     const isProd = process.env.NODE_ENV === 'production';
-    // Gestione percorsi sia in locale (src) che in produzione (dist)
+    // Gestione percorsi per trovare i prompt di sistema (comportamento Headhunter)
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
       : path.join(process.cwd(), 'src', 'knowledge_base');
   }
 
   /**
-   * Helper: Carica il contenuto testuale di un file dalla Knowledge Base.
-   * Cerca in diverse sottocartelle per robustezza.
+   * Helper: Carica file di sistema (es. il tono di voce dell'Headhunter).
+   * NON viene più usato per caricare il "cosa cercare", ma solo il "come comportarsi".
    */
   private loadTextFile(filename: string): string {
     try {
       const possiblePaths = [
         path.join(this.kbPath, filename),
         path.join(this.kbPath, 'developer', filename),
-        path.join(process.cwd(), 'src', 'knowledge_base', filename) // Fallback sviluppo
+        path.join(process.cwd(), 'src', 'knowledge_base', filename)
       ];
 
       for (const p of possiblePaths) {
         if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8');
       }
-
-      console.warn(`⚠️ File KB non trovato: ${filename}`);
       return "";
     } catch (e) {
-      console.error(`Errore lettura file ${filename}:`, e);
+      console.error(`Errore lettura file sistema ${filename}:`, e);
       return "";
     }
   }
 
   /**
-   * Entry Point: Avvia la ricerca di opportunità.
-   * @param mode 'daily' | 'weekly' | 'monthly' - Definisce l'orizzonte temporale.
+   * --- IL CUORE DINAMICO ---
+   * Trasforma il JSON del profilo utente (dal DB) in un Prompt di Ricerca strutturato.
+   */
+  private generateUserProtocol(profile: any): string {
+    // 1. Fallback se il profilo è vuoto o non ancora compilato
+    if (!profile || !profile.dreamRole) {
+        return `
+        === GENERIC SEARCH PROTOCOL ===
+        TARGET: Remote Freelance Opportunities
+        SKILLS: General Tech & Digital Skills
+        CONTEXT: The user has not defined a specific profile yet. Find high-quality remote jobs suitable for a digital nomad.
+        `;
+    }
+
+    // 2. Estrazione e Pulizia Dati
+    const dreamRole = profile.dreamRole;
+    
+    // Gestione array vs stringhe (per robustezza)
+    const formatList = (val: any) => Array.isArray(val) ? val.join(", ") : (val || "None");
+    
+    const antiVision = formatList(profile.antiVision);
+    const skills = formatList(profile.keySkillsToAcquire);
+    const advantages = formatList(profile.unfairAdvantages);
+    const specificQuestions = profile.specificQuestions || "No specific extra instructions.";
+
+    // 3. Costruzione Prompt Personalizzato
+    return `
+    === USER CUSTOM MANIFESTO (SOURCE OF TRUTH) ===
+    
+    1. 🎯 PRIMARY OBJECTIVE (The Hunt Target):
+       "${dreamRole}"
+       -> The AI must PRIORITIZE this specific role/niche above all else.
+
+    2. ⚡ USER ASSETS (Keywords to Match):
+       Skills & Advantages: ${skills}, ${advantages}
+       -> Use these keywords to verify job fit.
+
+    3. ⛔ STRICT EXCLUSIONS (The Anti-Vision):
+       Do NOT include jobs that involve: ${antiVision}
+       -> Filter these out aggressively.
+
+    4. 📝 SPECIFIC USER INSTRUCTIONS / QUESTIONS:
+       "${specificQuestions}"
+       -> Pay close attention to these custom constraints or requests.
+
+    ==============================================
+    `;
+  }
+
+  /**
+   * Entry Point: Avvia la ricerca (Daily/Weekly/Monthly).
    */
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<number> {
-    console.log(`\n🚀 [PERPLEXITY] Avvio Caccia: ${mode.toUpperCase()} per User ${userId}`);
+    console.log(`\n🚀 [PERPLEXITY] Avvio Caccia ${mode.toUpperCase()} su misura per User: ${userId}`);
 
-    // 1. Determina la "Recency" (Quanto indietro nel tempo guardare)
+    // Generiamo il protocollo specifico per QUESTO utente in QUESTO momento
+    const userProtocol = this.generateUserProtocol(clientProfile);
+
+    // Determina l'orizzonte temporale
     let recency = 'day'; // Default Daily (24h)
     if (mode === 'weekly') recency = 'week';   // 7 giorni
     if (mode === 'monthly') recency = 'month'; // 30 giorni
 
-    // 2. Esegui la ricerca forzata sul Protocollo C
-    return await this.performSearch(userId, clientProfile, mode, recency);
+    return await this.performSearch(userId, userProtocol, mode, recency);
   }
 
   /**
-   * Logica Core: Esegue la chiamata a Perplexity usando il Manuale C come UNICA fonte di verità.
+   * Esegue la ricerca su Perplexity usando il Protocollo Generato.
    */
-  private async performSearch(userId: string, clientProfile: any, mode: string, recency: string): Promise<number> {
+  private async performSearch(userId: string, protocol: string, mode: string, recency: string): Promise<number> {
     
-    // --- STEP 1: CARICAMENTO DEL "CERVELLO" (IL PROTOCOLLO) ---
-    // Questo file definisce COSA cercare (AI Tutor, Tester, ecc.), ignorando il profilo utente.
-    const searchProtocol = this.loadTextFile('manual_c_easy_income.md');
-    
-    if (!searchProtocol) {
-        console.error("❌ ERRORE CRITICO: 'manual_c_easy_income.md' non trovato. Impossibile eseguire ricerca mirata.");
-        throw new Error("Protocollo di ricerca mancante (Manual C).");
-    }
-
-    // --- STEP 2: SELEZIONE DELLA "PERSONALITÀ" (L'HEADHUNTER) ---
-    // Questo definisce COME cercare (il tono e lo stile), ma non COSA cercare.
-    let systemInstructionFile = 'system_headhunter_prompt.md'; // Default Daily
+    // Carichiamo il "Character" dell'Headhunter (file statico di sistema)
+    let systemInstructionFile = 'system_headhunter_prompt.md';
     if (mode === 'weekly') systemInstructionFile = 'system_headhunter_weekly.md';
-    if (mode === 'monthly') systemInstructionFile = 'system_headhunter_monthly.md';
-
+    
     let systemBehavior = this.loadTextFile(systemInstructionFile);
-    // Fallback se il prompt specifico non esiste
     if (!systemBehavior) systemBehavior = "You are an expert headhunter finding high-value remote gigs.";
 
-    // --- STEP 3: COSTRUZIONE DEL CONTESTO (FORZATURA TOTALE) ---
-    // Qui sovrascriviamo esplicitamente qualsiasi "Dream Role" precedente dell'utente.
+    // Costruiamo il messaggio finale per l'AI
     const searchContext = `
-      ⚠️ CRITICAL INSTRUCTION: OVERRIDE ALL PREVIOUS USER PROFILES.
-      
-      Do NOT search for "Developer", "Programmer", "Software Engineer" or generic jobs unless explicitly stated in the Protocol below.
-      Ignore the user's DB profile if it conflicts with the Protocol.
+      ⚠️ CRITICAL: IGNORE any previous generic instructions. 
+      Follow the USER CUSTOM MANIFESTO below strictly.
 
-      YOU MUST FIND JOBS MATCHING STRICTLY THE FOLLOWING "QUICK YIELD" PROTOCOL:
-      
-      === START PROTOCOL (SOURCE OF TRUTH) ===
-      ${searchProtocol}
-      === END PROTOCOL ===
+      ${protocol}
 
       --- 🎯 SEARCH PARAMETERS ---
       TIMEFRAME: Opportunities published in the last ${recency === 'day' ? '24 HOURS' : '7 DAYS'}.
-      LOCATION: Remote (Italy preferred, Europe/Global allowed if explicitly stated in Protocol).
-      FILTERS: 
-      - NO Surveys / Sondaggi.
-      - NO MLM / Network Marketing.
-      - NO Cold Calling.
+      LOCATION: Remote (Global/Europe preferred unless User specified otherwise).
       
-      YOUR GOAL: Find 5 concrete, active job listings that match the "Pillars" defined in the Protocol above.
-      OUTPUT FORMAT: Provide a valid JSON Array exactly as requested in the Protocol.
+      YOUR GOAL: Find 5 concrete, active job listings that match the USER MANIFESTO.
+      
+      OUTPUT FORMAT:
+      Return a valid JSON Array. Each object must have:
+      - title: Job Title
+      - platform: Company or Platform Name
+      - hourly_rate: Estimated pay (string)
+      - difficulty: "High", "Medium", or "Low" based on requirements
+      - action_link: Direct URL to apply
+      - why_it_works: One sentence explaining why this fits the User Manifesto.
     `;
 
-    // --- STEP 4: CHIAMATA API ---
-    console.log(`🔍 [QUERY] Ricerca in corso su Perplexity (Model: sonar-pro)...`);
+    console.log(`🔍 [QUERY] Esecuzione ricerca dinamica su Perplexity...`);
     
     try {
       const response = await axios.post(
@@ -116,14 +149,14 @@ export class PerplexityService {
             { role: 'system', content: systemBehavior },
             { role: 'user', content: searchContext }
           ],
-          temperature: 0.1, // Bassa temperatura per seguire le regole rigidamente
+          temperature: 0.1, // Bassa temperatura per rispettare i vincoli
           max_tokens: 4000
         },
         { headers: { 'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}` } }
       );
 
       const rawContent = response.data.choices[0].message.content;
-      console.log(`✅ [PERPLEXITY] Risposta ricevuta (${rawContent.length} chars). Elaborazione...`);
+      console.log(`✅ [PERPLEXITY] Risposta ricevuta. Elaborazione...`);
       
       return await this.processAndSaveOpportunities(rawContent, userId, mode as any);
 
@@ -134,31 +167,29 @@ export class PerplexityService {
   }
 
   /**
-   * Processa il JSON grezzo di Perplexity e salva le missioni nel DB.
+   * Processa il JSON e salva nel DB.
    */
   private async processAndSaveOpportunities(rawContent: string, userId: string, type: 'daily' | 'weekly' | 'monthly'): Promise<number> {
     let opportunities = [];
     
     try {
-      // Pulizia del JSON (rimuove i backticks del markdown ```json ... ```)
+      // Pulizia del JSON (rimuove i backticks del markdown)
       const jsonStr = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
       opportunities = JSON.parse(jsonStr);
     } catch (e) {
-      console.error("⚠️ Errore parsing JSON da Perplexity. Il formato ricevuto potrebbe non essere valido.");
-      console.debug("Raw Content Preview:", rawContent.substring(0, 100));
+      console.error("⚠️ Errore parsing JSON da Perplexity.");
       return 0;
     }
 
     if (!Array.isArray(opportunities) || opportunities.length === 0) {
-        console.warn("⚠️ Nessuna opportunità valida trovata nel JSON.");
+        console.warn("⚠️ Nessuna opportunità valida trovata.");
         return 0;
     }
 
     let savedCount = 0;
-    console.log(`💾 Salvataggio di ${opportunities.length} nuove missioni (Target: Manual C Protocol)...`);
-
+    
     for (const opp of opportunities) {
-      // Verifica duplicati (basata su URL o Titolo+Azienda)
+      // Verifica duplicati per evitare spam
       const existing = await db.selectFrom('missions')
         .select('id')
         .where('user_id', '=', userId)
@@ -177,15 +208,15 @@ export class PerplexityService {
             id: crypto.randomUUID(),
             user_id: userId,
             title: opp.title,
-            company_name: opp.platform || opp.company || "Confidenziale",
-            description: `${opp.why_it_works || ''}\n\nDifficulty: ${opp.difficulty || 'N/A'}\n\n${opp.description || ''}`,
+            company_name: opp.platform || opp.company || "N/A",
+            description: `${opp.why_it_works || ''}\n\nRequisiti: ${opp.difficulty || 'N/A'}\n${opp.description || ''}`,
             source_url: opp.action_link || opp.url || "#",
             reward_amount: this.parseReward(opp.hourly_rate || opp.reward),
-            estimated_duration_hours: 1, // Default per task rapidi
+            estimated_duration_hours: 1, 
             status: 'pending',
-            type: type, // Mantiene Daily/Weekly/Monthly per l'UI
-            platform: "Easy Income Protocol", // Tagghiamo chiaramente la fonte
-            match_score: 99, // Forza alta priorità nel sorting
+            type: type,
+            platform: "Custom User Hunt", // Tagghiamo la provenienza
+            match_score: 100, // Massima priorità perché richiesto dall'utente
             created_at: new Date(),
             raw_data: JSON.stringify(opp)
           })
@@ -194,14 +225,11 @@ export class PerplexityService {
       }
     }
 
-    console.log(`✅ Salvate ${savedCount} missioni.`);
+    console.log(`✅ Salvate ${savedCount} nuove missioni personalizzate.`);
     return savedCount;
   }
 
-  /**
-   * Helper per estrarre numeri dalla stringa del compenso.
-   * Es. "$20-25/h" -> 20
-   */
+  // Helper per estrarre numeri (es. "$25/h" -> 25)
   private parseReward(rewardStr: string): number {
     if (!rewardStr) return 0;
     const matches = rewardStr.match(/\d+/);

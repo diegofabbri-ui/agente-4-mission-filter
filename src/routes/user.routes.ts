@@ -1,98 +1,108 @@
 import { Router } from 'express';
-import { authMiddleware, AuthRequest } from '../middleware/auth.middleware';
+import { db } from '../infra/db';
+import { authMiddleware } from '../middleware/auth.middleware';
+import crypto from 'crypto';
 
 const userRouter = Router();
 
-// Middleware di protezione
+// Protegge tutte le rotte utente con il middleware di autenticazione
 userRouter.use(authMiddleware);
 
-// GET /api/user/profile-data
+// ==================================================================================
+// GET: Recupera i dati del profilo (incluso il Manifesto di Ricerca)
+// ==================================================================================
 userRouter.get('/profile-data', async (req: any, res) => {
   try {
-    const db = req.app.get('db');
-    const userId = req.user!.userId;
+    const userId = req.user.userId;
 
-    const user = await db.selectFrom('users')
-      .select('full_name')
-      .where('id', '=', userId)
-      .executeTakeFirst();
-
+    // Recupera il profilo dal database
     const profile = await db.selectFrom('user_ai_profile')
-      .select('career_manifesto')
-      .where('user_id', '=', userId)
-      .executeTakeFirst();
-      
-    const prefs = await db.selectFrom('user_preferences')
-      .select('min_hourly_rate')
+      .selectAll()
       .where('user_id', '=', userId)
       .executeTakeFirst();
 
-    return res.json({
-      fullName: user?.full_name || "",
-      minHourlyRate: prefs?.min_hourly_rate || 0,
-      careerManifesto: profile?.career_manifesto || {}
+    if (!profile) {
+      // Se non esiste ancora un profilo, restituisce null (il frontend gestirà i default)
+      return res.json(null);
+    }
+
+    // Parsing sicuro del JSON salvato nel DB
+    let manifesto = {};
+    try {
+        manifesto = typeof profile.career_goal_json === 'string' 
+          ? JSON.parse(profile.career_goal_json) 
+          : profile.career_goal_json;
+    } catch (e) {
+        console.warn("JSON profilo corrotto, uso oggetto vuoto.");
+    }
+
+    // Restituisce i dati formattati per il frontend
+    res.json({
+      fullName: profile.full_name,
+      minHourlyRate: profile.min_hourly_rate,
+      careerManifesto: manifesto || {} // Il "Cervello" dell'Agente per questo utente
     });
-  } catch (e: any) {
-    console.error("Error fetching profile:", e);
-    return res.status(500).json({ error: "Errore server" });
+
+  } catch (e) {
+    console.error("Errore recupero profilo:", e);
+    res.status(500).json({ error: "Errore recupero dati profilo" });
   }
 });
 
-// PATCH /api/user/profile
+// ==================================================================================
+// PATCH: Salva/Aggiorna il profilo (Scrive il Manifesto nel DB)
+// ==================================================================================
 userRouter.patch('/profile', async (req: any, res) => {
   try {
-    const db = req.app.get('db');
-    const userId = req.user!.userId;
-    const body = req.body; // Validazione semplificata per il fix rapido
+    const userId = req.user.userId;
+    const { fullName, minHourlyRate, careerManifesto } = req.body;
 
-    // 1. Aggiorna User (Nome)
-    if (body.fullName) {
-      await db.updateTable('users')
-        .set({ full_name: body.fullName })
-        .where('id', '=', userId)
+    // Verifica preliminare dei dati critici
+    if (!fullName) {
+        return res.status(400).json({ error: "Il nome è obbligatorio." });
+    }
+
+    // Verifica se il profilo esiste già per questo utente
+    const exists = await db.selectFrom('user_ai_profile')
+      .select('id')
+      .where('user_id', '=', userId)
+      .executeTakeFirst();
+
+    const now = new Date();
+
+    if (exists) {
+      // UPDATE: Aggiorna il profilo esistente
+      await db.updateTable('user_ai_profile')
+        .set({
+          full_name: fullName,
+          min_hourly_rate: minHourlyRate || 0,
+          career_goal_json: JSON.stringify(careerManifesto), // Qui salviamo il protocollo dinamico
+          updated_at: now
+        })
+        .where('user_id', '=', userId)
+        .execute();
+    } else {
+      // INSERT: Crea un nuovo profilo (Upsert manuale)
+      await db.insertInto('user_ai_profile')
+        .values({
+          id: crypto.randomUUID(),
+          user_id: userId,
+          full_name: fullName,
+          min_hourly_rate: minHourlyRate || 0,
+          career_goal_json: JSON.stringify(careerManifesto),
+          created_at: now,
+          updated_at: now
+        })
         .execute();
     }
 
-    // 2. Aggiorna Preferenze (Tariffa)
-    if (body.minHourlyRate) {
-        // Verifica se esiste, altrimenti insert (upsert manuale)
-        const exists = await db.selectFrom('user_preferences').where('user_id', '=', userId).executeTakeFirst();
-        if (exists) {
-            await db.updateTable('user_preferences').set({ min_hourly_rate: body.minHourlyRate }).where('user_id', '=', userId).execute();
-        } else {
-            await db.insertInto('user_preferences').values({ user_id: userId, min_hourly_rate: body.minHourlyRate }).execute();
-        }
-    }
+    console.log(`✅ Profilo aggiornato per User: ${userId}`);
+    res.json({ success: true, message: "Protocollo Agente aggiornato con successo." });
 
-    // 3. Aggiorna Manifesto AI
-    if (body.careerManifesto) {
-      const existingProfile = await db.selectFrom('user_ai_profile').where('user_id', '=', userId).executeTakeFirst();
-      
-      if (existingProfile) {
-        await db.updateTable('user_ai_profile')
-          .set({ 
-            career_manifesto: JSON.stringify(body.careerManifesto),
-            updated_at: new Date().toISOString() as any
-          })
-          .where('user_id', '=', userId)
-          .execute();
-      } else {
-        await db.insertInto('user_ai_profile')
-          .values({ 
-            user_id: userId, 
-            career_manifesto: JSON.stringify(body.careerManifesto),
-            weights: JSON.stringify({}),
-            created_at: new Date().toISOString() as any
-          })
-          .execute();
-      }
-    }
-
-    return res.json({ success: true });
-  } catch (e: any) {
-    console.error("Error updating profile:", e);
-    return res.status(500).json({ error: e.message });
+  } catch (e) {
+    console.error("Errore salvataggio profilo:", e);
+    res.status(500).json({ error: "Errore durante il salvataggio del profilo." });
   }
 });
 
-export default userRouter;
+export { userRouter };
