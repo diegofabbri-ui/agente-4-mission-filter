@@ -11,7 +11,8 @@ userRouter.use(authMiddleware);
 userRouter.get('/profile-data', async (req: any, res) => {
   try {
     const userId = req.user.userId;
-    // La selectAll() ora prenderà full_name e min_hourly_rate perché sono in db.ts
+
+    // Ora 'full_name' e 'min_hourly_rate' ESISTONO in db.ts, quindi questa query funzionerà
     const profile = await db.selectFrom('user_ai_profile')
       .selectAll()
       .where('user_id', '=', userId)
@@ -19,20 +20,23 @@ userRouter.get('/profile-data', async (req: any, res) => {
 
     if (!profile) return res.json(null);
 
+    // Parsing difensivo del JSON
     let manifesto = {};
     try {
         manifesto = typeof profile.career_goal_json === 'string' 
           ? JSON.parse(profile.career_goal_json) 
-          : profile.career_goal_json;
-    } catch (e) {}
+          : (profile.career_goal_json || {});
+    } catch (e) {
+        console.warn("JSON profilo corrotto per user", userId);
+    }
 
     res.json({
       fullName: profile.full_name,
       minHourlyRate: profile.min_hourly_rate,
-      careerManifesto: manifesto || {} 
+      careerManifesto: manifesto
     });
   } catch (e) {
-    console.error(e);
+    console.error("Errore GET profile:", e);
     res.status(500).json({ error: "Errore server" });
   }
 });
@@ -43,9 +47,9 @@ userRouter.patch('/profile', async (req: any, res) => {
     const userId = req.user.userId;
     const { fullName, minHourlyRate, careerManifesto } = req.body;
 
-    if (!fullName) return res.status(400).json({ error: "Nome mancante" });
+    if (!fullName) return res.status(400).json({ error: "Nome obbligatorio" });
 
-    // Verifica esistenza usando ID
+    // Verifica esistenza usando ID (ora definito nei tipi)
     const exists = await db.selectFrom('user_ai_profile')
       .select('id') 
       .where('user_id', '=', userId)
@@ -57,8 +61,8 @@ userRouter.patch('/profile', async (req: any, res) => {
     if (exists) {
       await db.updateTable('user_ai_profile')
         .set({
-          full_name: fullName,
-          min_hourly_rate: minHourlyRate || 0,
+          full_name: fullName,             // Ora TypeScript sa che esiste
+          min_hourly_rate: minHourlyRate || 0, // Ora TypeScript sa che esiste
           career_goal_json: jsonVal,
           updated_at: now
         })
@@ -67,7 +71,7 @@ userRouter.patch('/profile', async (req: any, res) => {
     } else {
       await db.insertInto('user_ai_profile')
         .values({
-          id: crypto.randomUUID(),
+          id: crypto.randomUUID(),         // Ora TypeScript sa che esiste
           user_id: userId,
           full_name: fullName,
           min_hourly_rate: minHourlyRate || 0,
@@ -81,7 +85,7 @@ userRouter.patch('/profile', async (req: any, res) => {
 
     res.json({ success: true });
   } catch (e) {
-    console.error(e);
+    console.error("Errore PATCH profile:", e);
     res.status(500).json({ error: "Errore salvataggio" });
   }
 });

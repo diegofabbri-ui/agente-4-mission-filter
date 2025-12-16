@@ -1,4 +1,4 @@
-// [RAILWAY FIX] FORCE UPDATE V99 - DEFINIZIONI DB COMPLETE
+// [FORCE FIX] DB SCHEMA DEFINITION V3
 import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
@@ -50,16 +50,20 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- QUESTA È LA PARTE CRITICA ---
-// Deve includere TUTTI i campi che usiamo in user.routes.ts
+// --- QUESTA È LA CORREZIONE CRITICA ---
 export interface UserAiProfileTable {
-  id: string;                      // NECESSARIO
-  user_id: string;                 // NECESSARIO
-  full_name: string | null;        // NECESSARIO
-  min_hourly_rate: number | null;  // NECESSARIO
-  career_goal_json: any;           // NECESSARIO
+  // Campi Identificativi
+  id: string;        // OBBLIGATORIO per le query .select('id')
+  user_id: string;   // Chiave esterna
   
-  // Campi extra per compatibilità
+  // Campi Anagrafici (Quelli che causavano l'errore TS2339 e TS2353)
+  full_name: string | null;
+  min_hourly_rate: number | null;
+  
+  // Campi Logici (Il cervello dell'agente)
+  career_goal_json: any; 
+  
+  // Campi Legacy/Tecnici
   career_manifesto?: any;
   weights: any;
   
