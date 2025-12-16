@@ -7,7 +7,7 @@ import {
   ShieldAlert, 
   Cpu, 
   Save, 
-  Sliders, 
+  Zap,
   Banknote, 
   Search, 
   FileText 
@@ -17,15 +17,15 @@ import {
 const profileSchema = z.object({
   minHourlyRate: z.coerce.number().min(1, "Inserisci una tariffa minima valida."),
   dreamRole: z.string().min(3, "L'obiettivo è obbligatorio per orientare l'Agente."),
-  whatToDo: z.string().optional(), // Mappato su "I Tuoi Asset"
-  whatToAvoid: z.string().optional(), // Mappato su "Anti-Visione"
-  advancedInstructions: z.string().optional() // Mappato su "Istruzioni Avanzate"
+  whatToDo: z.string().optional(), // "Cosa vorresti fare?"
+  whatToAvoid: z.string().optional(), // "Cosa non vorresti fare?"
+  advancedInstructions: z.string().optional() // "Istruzioni Avanzate"
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
 export default function ProfileSetup() {
-  const { register, handleSubmit, formState: { isSubmitting, errors }, setValue } = useForm<ProfileFormValues>();
+  const { register, handleSubmit, formState: { errors, isSubmitting }, setValue } = useForm<ProfileFormValues>();
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
 
   // --- CARICAMENTO DATI ---
@@ -36,7 +36,6 @@ export default function ProfileSetup() {
         setValue("minHourlyRate", d.minHourlyRate);
         if (d.careerManifesto) {
           setValue("dreamRole", d.careerManifesto.dreamRole);
-          // Mappatura dei campi DB -> UI
           setValue("whatToDo", d.careerManifesto.whatToDo);
           setValue("whatToAvoid", d.careerManifesto.whatToAvoid);
           setValue("advancedInstructions", d.careerManifesto.advancedInstructions);
@@ -49,8 +48,7 @@ export default function ProfileSetup() {
   const onSubmit = async (values: ProfileFormValues) => {
     setStatus("idle");
     
-    // Conferma UX per far capire l'importanza dell'azione
-    if (!confirm("⚠️ CONFERMA AGGIORNAMENTO PROTOCOLLO\n\nL'Agente archivierà le ricerche precedenti e riavvierà la caccia basandosi ESCLUSIVAMENTE su questi nuovi parametri.\n\nProcedere?")) return;
+    if (!confirm("⚠️ CONFERMA AGGIORNAMENTO\n\nL'Agente archivierà le ricerche precedenti. L'AI analizzerà le tue nuove risposte per generare keyword di ricerca ottimizzate.\n\nProcedere?")) return;
 
     try {
       await apiClient.patch('/user/profile', values);
@@ -65,7 +63,7 @@ export default function ProfileSetup() {
   return (
     <div className="max-w-5xl mx-auto p-6 pb-40 text-gray-100 font-sans">
       
-      {/* --- HEADER: TITOLO & MISSIONE --- */}
+      {/* --- HEADER --- */}
       <header className="mb-12 border-b border-gray-800 pb-8">
         <div className="flex items-center gap-4 mb-4">
           <div className="p-3 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
@@ -79,114 +77,98 @@ export default function ProfileSetup() {
         
         <div className="bg-[#0f1115] border-l-4 border-indigo-500 p-6 rounded-r-xl">
           <p className="text-gray-300 text-sm leading-relaxed">
-            Non è un semplice profilo. È il <strong>Protocollo di Caccia</strong>. 
-            L'Agente userà esattamente quello che scrivi qui per <strong>filtrare internet</strong> e trovare lavoro per te.
-            Sii chirurgico nelle tue istruzioni.
+            Rispondi a queste domande come se parlassi a un assistente umano.
+            L'Intelligenza Artificiale analizzerà le tue risposte per creare i filtri di ricerca perfetti.
           </p>
         </div>
       </header>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-10">
         
-        {/* --- SEZIONE 1: IDENTITÀ OPERATIVA (TARIFFA) --- */}
+        {/* --- SEZIONE 1: IDENTITÀ & OBIETTIVO --- */}
         <section className="bg-[#0f1115] rounded-2xl border border-white/5 overflow-hidden">
           <div className="p-6 border-b border-white/5 flex items-center gap-3 bg-white/[0.02]">
-            <Banknote className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-lg font-bold text-white">Identità Operativa & Tariffa</h2>
+            <Target className="w-5 h-5 text-indigo-400" />
+            <h2 className="text-lg font-bold text-white">Parametri Base</h2>
           </div>
           
-          <div className="p-8 grid md:grid-cols-2 gap-8 items-center">
-            <div>
+          <div className="p-8 grid md:grid-cols-12 gap-8">
+            {/* OBIETTIVO */}
+            <div className="md:col-span-8">
+              <label className="text-xs font-bold text-indigo-300 uppercase tracking-wider mb-2 block">
+                Obiettivo Primario (Dream Role)
+              </label>
+              <input 
+                {...register("dreamRole")} 
+                className="w-full bg-black/40 border border-indigo-500/30 rounded-xl p-4 text-xl text-white placeholder-gray-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                placeholder="Es. Senior React Developer" 
+              />
+              {errors.dreamRole && <p className="text-red-400 text-xs mt-2">{errors.dreamRole.message}</p>}
+              <p className="mt-2 text-xs text-gray-500 flex items-center gap-2">
+                <Search className="w-3 h-3" />
+                La "Bussola": definisce il ruolo o la nicchia principale.
+              </p>
+            </div>
+
+            {/* TARIFFA */}
+            <div className="md:col-span-4">
               <label className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2 block">
-                Tariffa Minima (€/ora)
+                Tariffa Minima (€/h)
               </label>
               <div className="relative">
                 <input 
                   type="number" 
                   {...register("minHourlyRate")} 
-                  className="w-full bg-black/40 border border-gray-700 rounded-xl p-4 pl-12 text-2xl font-mono text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all placeholder-gray-600" 
+                  className="w-full bg-black/40 border border-gray-700 rounded-xl p-4 pl-10 text-xl font-mono text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all placeholder-gray-600" 
                   placeholder="20" 
                 />
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-xl font-bold">€</span>
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold">€</span>
               </div>
-              {errors.minHourlyRate && <p className="text-red-400 text-xs mt-2">{errors.minHourlyRate.message}</p>}
-            </div>
-            
-            <div className="text-sm text-gray-400 bg-black/20 p-4 rounded-xl border border-white/5">
-              <p className="flex items-start gap-2">
-                <span className="text-emerald-500 font-bold">Nota:</span>
-                L'Agente scarterà <strong>automaticamente</strong> qualsiasi offerta sotto questa cifra. Non perderai tempo a negoziare al ribasso.
-              </p>
             </div>
           </div>
         </section>
 
-        {/* --- SEZIONE 2: OBIETTIVO (LA BUSSOLA) --- */}
-        <section className="bg-[#0f1115] rounded-2xl border border-indigo-500/30 shadow-[0_0_40px_rgba(99,102,241,0.05)] overflow-hidden">
-          <div className="p-6 border-b border-indigo-500/20 flex items-center gap-3 bg-indigo-500/5">
-            <Target className="w-6 h-6 text-indigo-400" />
-            <h2 className="text-xl font-bold text-white">Obiettivo Primario (Dream Role)</h2>
-          </div>
-          
-          <div className="p-8">
-            <label className="text-xs font-bold text-indigo-300 uppercase tracking-wider mb-3 block">
-              Definizione del Ruolo
-            </label>
-            <input 
-              {...register("dreamRole")} 
-              className="w-full bg-black/40 border border-indigo-500/30 rounded-xl p-5 text-xl text-white placeholder-gray-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
-              placeholder="Es. Senior React Developer per FinTech" 
-            />
-            {errors.dreamRole && <p className="text-red-400 text-xs mt-2">{errors.dreamRole.message}</p>}
-            
-            <p className="mt-4 text-sm text-gray-400 flex items-center gap-2">
-              <Search className="w-4 h-4 text-indigo-500" />
-              Questa è la <strong>bussola</strong> dell'Agente. Scrivi esattamente il ruolo o la nicchia che vuoi dominare.
-            </p>
-          </div>
-        </section>
-
-        {/* --- SEZIONE 3: FILTRI TATTICI (ASSET vs ANTI-VISIONE) --- */}
+        {/* --- SEZIONE 2: PREFERENZE OPERATIVE (LE TUE RICHIESTE) --- */}
         <div className="grid md:grid-cols-2 gap-8">
           
-          {/* ANTI-VISIONE */}
-          <section className="bg-[#0f1115] rounded-2xl border border-red-900/30 hover:border-red-500/30 transition-colors group">
+          {/* COSA VORRESTI FARE (POSITIVE) */}
+          <section className="bg-[#0f1115] rounded-2xl border border-emerald-900/30 hover:border-emerald-500/30 transition-colors group">
             <div className="p-6 border-b border-white/5 flex items-center gap-3">
-              <ShieldAlert className="w-5 h-5 text-red-500 group-hover:scale-110 transition-transform" />
-              <h3 className="font-bold text-white">Anti-Visione (Esclusioni)</h3>
+              <Zap className="w-5 h-5 text-emerald-500 group-hover:scale-110 transition-transform" />
+              <h3 className="font-bold text-white text-lg">Cosa vorresti fare?</h3>
             </div>
             <div className="p-6">
-              <textarea 
-                {...register("whatToAvoid")} 
-                className="w-full bg-black/40 border border-gray-800 rounded-xl p-4 text-sm h-40 resize-none focus:border-red-500/50 focus:ring-1 focus:ring-red-900/20 outline-none transition-all placeholder-gray-700" 
-                placeholder="Es. No call center, no MLM, no gambling, no WordPress..." 
-              />
-              <p className="mt-3 text-[10px] text-gray-500 uppercase tracking-wide">
-                Separa con virgole. L'Agente userà questi termini come <strong>Filtro Negativo</strong>.
+              <p className="text-xs text-gray-400 mb-3">
+                Descrivi le tecnologie, i task o i settori che ti piacciono. L'AI estrarrà le <strong>Keyword Positive</strong> da qui.
               </p>
+              <textarea 
+                {...register("whatToDo")} 
+                className="w-full bg-black/40 border border-gray-800 rounded-xl p-4 text-sm h-40 resize-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-900/20 outline-none transition-all placeholder-gray-700 leading-relaxed" 
+                placeholder="Es. Voglio lavorare con Next.js e Tailwind. Mi piace creare interfacce utente pulite. Preferisco progetti Fintech o Crypto..." 
+              />
             </div>
           </section>
 
-          {/* ASSET (KEYWORD POSITIVE) */}
-          <section className="bg-[#0f1115] rounded-2xl border border-emerald-900/30 hover:border-emerald-500/30 transition-colors group">
+          {/* COSA NON VORRESTI FARE (NEGATIVE) */}
+          <section className="bg-[#0f1115] rounded-2xl border border-red-900/30 hover:border-red-500/30 transition-colors group">
             <div className="p-6 border-b border-white/5 flex items-center gap-3">
-              <Sliders className="w-5 h-5 text-emerald-500 group-hover:scale-110 transition-transform" />
-              <h3 className="font-bold text-white">I Tuoi Asset (Keyword)</h3>
+              <ShieldAlert className="w-5 h-5 text-red-500 group-hover:scale-110 transition-transform" />
+              <h3 className="font-bold text-white text-lg">Cosa non vorresti fare?</h3>
             </div>
             <div className="p-6">
-              <textarea 
-                {...register("whatToDo")} 
-                className="w-full bg-black/40 border border-gray-800 rounded-xl p-4 text-sm h-40 resize-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-900/20 outline-none transition-all placeholder-gray-700" 
-                placeholder="Es. Solidity, Rust, DeFi protocols, Smart Contract Audit..." 
-              />
-              <p className="mt-3 text-[10px] text-gray-500 uppercase tracking-wide">
-                Queste keyword verranno usate per trovare lavori che richiedono <strong>specificamente TE</strong>.
+              <p className="text-xs text-gray-400 mb-3">
+                Descrivi ciò che odi. L'AI userà queste info per creare i <strong>Filtri Negativi</strong> ed escludere risultati spazzatura.
               </p>
+              <textarea 
+                {...register("whatToAvoid")} 
+                className="w-full bg-black/40 border border-gray-800 rounded-xl p-4 text-sm h-40 resize-none focus:border-red-500/50 focus:ring-1 focus:ring-red-900/20 outline-none transition-all placeholder-gray-700 leading-relaxed" 
+                placeholder="Es. Non voglio fare chiamate a freddo. Niente WordPress o Joomla. Evita aziende di betting o gambling. No MLM..." 
+              />
             </div>
           </section>
         </div>
 
-        {/* --- SEZIONE 4: ISTRUZIONI AVANZATE --- */}
+        {/* --- SEZIONE 3: ISTRUZIONI AVANZATE --- */}
         <section className="bg-[#0f1115] rounded-2xl border border-white/5">
           <div className="p-6 border-b border-white/5 flex items-center gap-3">
             <FileText className="w-5 h-5 text-purple-400" />
@@ -196,7 +178,7 @@ export default function ProfileSetup() {
             <textarea 
               {...register("advancedInstructions")} 
               className="w-full bg-black/40 border border-gray-800 rounded-xl p-4 text-sm h-32 resize-none focus:border-purple-500/50 outline-none transition-all placeholder-gray-700 font-mono" 
-              placeholder="// Note libere per l'Agente. Es: 'Dai priorità a startup in fase Seed', 'Cerca solo contratti B2B'..." 
+              placeholder="// Regole extra per l'Agente. Es: 'Dai priorità a startup in fase Seed', 'Cerca solo contratti B2B', 'Ignora offerte su Upwork'..." 
             />
           </div>
         </section>
@@ -207,8 +189,8 @@ export default function ProfileSetup() {
             <div className="mb-4 bg-emerald-900/90 border border-emerald-500/50 text-white px-6 py-4 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-4 animate-in slide-in-from-bottom-5">
               <div className="p-2 bg-emerald-500 rounded-full text-black"><Cpu className="w-4 h-4" /></div>
               <div>
-                <p className="font-bold text-sm">Protocollo Aggiornato</p>
-                <p className="text-xs opacity-90">L'Agente sta analizzando le nuove keyword...</p>
+                <p className="font-bold text-sm">Protocollo Aggiornato & AI Avviata</p>
+                <p className="text-xs opacity-90">L'Agente sta calcolando le nuove keyword e iniziando la caccia...</p>
               </div>
             </div>
           )}
@@ -220,7 +202,7 @@ export default function ProfileSetup() {
           >
             {isSubmitting ? (
               <span className="flex items-center gap-2 animate-pulse">
-                <Cpu className="w-5 h-5" /> OTTIMIZZAZIONE IN CORSO...
+                <Cpu className="w-5 h-5" /> GENERAZIONE KEYWORD IN CORSO...
               </span>
             ) : (
               <>
