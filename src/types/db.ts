@@ -2,7 +2,7 @@ import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
   users: UserTable;
-  missions: MissionsTable; // Verifica che il nome sia coerente in tutto il progetto
+  missions: MissionTable;
   user_ai_profile: UserAiProfileTable;
   mission_threads: MissionThreadTable;
   user_preferences: UserPreferencesTable;
@@ -19,7 +19,7 @@ interface UserTable {
   status: 'active' | 'inactive';
 }
 
-interface MissionsTable {
+interface MissionTable {
   id: string;
   user_id: string | null;
   title: string;
@@ -49,18 +49,22 @@ interface MissionsTable {
   max_commands?: number;
 }
 
-// --- FIX: DEFINIZIONE COMPLETA (FORCE UPDATE) ---
+// --- FIX DEFINITIVO: AGGIUNTE LE COLONNE MANCANTI ---
 export interface UserAiProfileTable {
-  id: string; // Fondamentale
+  // Questa colonna 'id' è fondamentale perché user.routes.ts fa .select('id')
+  id: string; 
+  
   user_id: string;
   
-  // Campi che causavano l'errore di build:
+  // Questi campi sono usati per salvare il nome e la tariffa dal frontend
   full_name: string | null;
   min_hourly_rate: number | null;
   
-  // Il cervello dell'agente:
+  // Questo campo salva il "Manifesto" (il protocollo di ricerca)
   career_goal_json: any; 
-  career_manifesto?: any; // Compatibilità
+  
+  // Campi per retrocompatibilità
+  career_manifesto?: any;
   weights: any;
   
   created_at: Generated<Date>;
