@@ -1,9 +1,8 @@
-// [FORCE FIX] DB SCHEMA DEFINITION V3
 import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
   users: UserTable;
-  missions: MissionTable;
+  missions: MissionsTable; // Ho uniformato il nome
   user_ai_profile: UserAiProfileTable;
   mission_threads: MissionThreadTable;
   user_preferences: UserPreferencesTable;
@@ -20,7 +19,7 @@ interface UserTable {
   status: 'active' | 'inactive';
 }
 
-interface MissionTable {
+interface MissionsTable {
   id: string;
   user_id: string | null;
   title: string;
@@ -50,22 +49,17 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- QUESTA È LA CORREZIONE CRITICA ---
+// --- FIX: INTERFACCIA COMPLETA E CORRETTA ---
 export interface UserAiProfileTable {
-  // Campi Identificativi
-  id: string;        // OBBLIGATORIO per le query .select('id')
-  user_id: string;   // Chiave esterna
+  id: string;                      // NECESSARIO
+  user_id: string;                 // NECESSARIO
+  full_name: string | null;        // NECESSARIO
+  min_hourly_rate: number | null;  // NECESSARIO
+  career_goal_json: any;           // NECESSARIO
   
-  // Campi Anagrafici (Quelli che causavano l'errore TS2339 e TS2353)
-  full_name: string | null;
-  min_hourly_rate: number | null;
-  
-  // Campi Logici (Il cervello dell'agente)
-  career_goal_json: any; 
-  
-  // Campi Legacy/Tecnici
+  // Legacy
   career_manifesto?: any;
-  weights: any;
+  weights?: any;
   
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
