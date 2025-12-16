@@ -4,13 +4,12 @@ import { PerplexityService } from '../services/perplexity.service';
 
 const BATCH_DELAY_MS = 5000; 
 
-// --- FIX: RINOMINATO DA initScheduler A startScheduler ---
+// FIX: Export corretto per index.ts
 export const startScheduler = () => {
   console.log('⏰ Scheduler Multi-Tenant inizializzato (Rome Time)');
 
   cron.schedule('0 8 * * *', async () => {
-    console.log('🌅 AVVIO CACCIA MASSIVA PER TUTTI GLI UTENTI...');
-    
+    console.log('🌅 AVVIO CACCIA MASSIVA...');
     try {
       const users = await db
         .selectFrom('users')
@@ -22,21 +21,13 @@ export const startScheduler = () => {
       console.log(`📋 Trovati ${users.length} utenti attivi.`);
       const hunter = new PerplexityService();
 
-      for (const [index, user] of users.entries()) {
-        const manifesto = user.career_goal_json;
-        if (!manifesto) continue;
-        
-        console.log(`\n👤 [${index + 1}/${users.length}] Caccia per: ${user.email}`);
+      for (const user of users) {
+        if (!user.career_goal_json) continue;
         try {
-          await hunter.findGrowthOpportunities(user.id, manifesto);
-        } catch (e) {
-          console.error(`❌ Errore caccia per ${user.email}:`, e);
-        }
-        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+          await hunter.findGrowthOpportunities(user.id, user.career_goal_json);
+        } catch (e) { console.error(`Errore caccia ${user.email}`, e); }
+        await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
       }
-      console.log('✅ CACCIA MASSIVA COMPLETATA.');
-    } catch (e) {
-      console.error("Errore critico scheduler:", e);
-    }
+    } catch (e) { console.error("Errore scheduler:", e); }
   }, { timezone: "Europe/Rome" });
 };

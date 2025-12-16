@@ -2,7 +2,7 @@ import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
   users: UserTable;
-  missions: MissionTable;
+  missions: MissionsTable; // Verifica che il nome sia coerente in tutto il progetto
   user_ai_profile: UserAiProfileTable;
   mission_threads: MissionThreadTable;
   user_preferences: UserPreferencesTable;
@@ -19,7 +19,7 @@ interface UserTable {
   status: 'active' | 'inactive';
 }
 
-interface MissionTable {
+interface MissionsTable {
   id: string;
   user_id: string | null;
   title: string;
@@ -49,20 +49,18 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- FIX CRITICO: AGGIUNTA DEI CAMPI MANCANTI ---
+// --- FIX: DEFINIZIONE COMPLETA (FORCE UPDATE) ---
 export interface UserAiProfileTable {
-  // ID è obbligatorio per le query select('id')
-  id: string; 
-  
+  id: string; // Fondamentale
   user_id: string;
   
-  // Campi anagrafici richiesti da user.routes.ts
+  // Campi che causavano l'errore di build:
   full_name: string | null;
   min_hourly_rate: number | null;
   
-  // Campi logici (Nuovo sistema + Legacy)
+  // Il cervello dell'agente:
   career_goal_json: any; 
-  career_manifesto?: any;
+  career_manifesto?: any; // Compatibilità
   weights: any;
   
   created_at: Generated<Date>;
