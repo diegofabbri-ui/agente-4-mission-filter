@@ -49,19 +49,23 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- FIX: AGGIUNTE LE COLONNE MANCANTI ---
+// --- FIX: DEFINIZIONE CORRETTA CON CAMPI MANCANTI ---
 export interface UserAiProfileTable {
-  id: string; // <--- MANCAVA
+  // Colonna ID (Mancava e causava errore su .select('id'))
+  id: string; 
+  
   user_id: string;
   
-  // Campi per il Profilo Dinamico (necessari per user.routes.ts)
+  // Dati Anagrafici (Mancavano e causavano errore su full_name/min_hourly_rate)
   full_name: string | null;
   min_hourly_rate: number | null;
-  career_goal_json: any; // Nuovo sistema
   
-  // Legacy
-  career_manifesto: any; 
-  weights: any;
+  // Manifesto (Protocollo di Ricerca)
+  career_goal_json: any; 
+  
+  // Campi Legacy/Opzionali
+  career_manifesto?: any;
+  weights?: any;
   
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
