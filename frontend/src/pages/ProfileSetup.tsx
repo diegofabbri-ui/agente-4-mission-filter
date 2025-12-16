@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import apiClient from "../lib/apiClient"; // <--- CORREZIONE: Usiamo il client configurato
 import { z } from "zod";
 import { useForm } from "react-hook-form";
-
-const API_BASE_URL = "https://agente-4-mission-filter-production.up.railway.app";
 
 // --- SCHEMA AGGIORNATO (NIKE STYLE) ---
 const profileSchema = z.object({
@@ -26,7 +24,8 @@ export default function ProfileSetup() {
 
   // Carica dati esistenti (se ci sono)
   useEffect(() => {
-    axios.get(`${API_BASE_URL}/api/user/profile-data`).then(res => {
+    // CORREZIONE: apiClient gestisce l'URL base e il Token
+    apiClient.get('/user/profile-data').then(res => {
       const d = res.data;
       if (d) {
         setValue("fullName", d.fullName);
@@ -41,7 +40,9 @@ export default function ProfileSetup() {
           setValue("keySkillsToAcquire", d.careerManifesto.keySkillsToAcquire?.join(", "));
         }
       }
-    }).catch(() => {}); // Ignora errori in load
+    }).catch((e) => {
+      console.error("Errore caricamento profilo:", e);
+    }); 
   }, [setValue]);
 
   const onSubmit = async (values: ProfileFormValues) => {
@@ -59,13 +60,15 @@ export default function ProfileSetup() {
         energyWindow: "MORNING" // Default per ora
       };
 
-      await axios.patch(`${API_BASE_URL}/api/user/profile`, {
+      // CORREZIONE: apiClient invia il Token automaticamente
+      await apiClient.patch('/user/profile', {
         fullName: values.fullName,
         minHourlyRate: values.minHourlyRate,
         careerManifesto // Inviamo il blocco JSON completo
       });
       setStatus("success");
     } catch (e) {
+      console.error("Errore salvataggio:", e);
       setStatus("error");
     }
   };
@@ -83,11 +86,12 @@ export default function ProfileSetup() {
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Nome</label>
-            <input {...register("fullName")} className="w-full bg-gray-800 border border-gray-700 rounded p-2" />
+            <input {...register("fullName")} className="w-full bg-gray-800 border border-gray-700 rounded p-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+            {errors.fullName && <p className="text-red-400 text-xs mt-1">{errors.fullName.message}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Tariffa Minima (€/h)</label>
-            <input type="number" {...register("minHourlyRate")} className="w-full bg-gray-800 border border-gray-700 rounded p-2" />
+            <input type="number" {...register("minHourlyRate")} className="w-full bg-gray-800 border border-gray-700 rounded p-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
           </div>
         </div>
 
@@ -97,12 +101,14 @@ export default function ProfileSetup() {
           
           <div>
             <label className="block text-sm font-medium mb-1">Ruolo Attuale</label>
-            <input {...register("currentRole")} placeholder="Es. Magazziniere" className="w-full bg-gray-800 border border-gray-700 rounded p-2" />
+            <input {...register("currentRole")} placeholder="Es. Magazziniere" className="w-full bg-gray-800 border border-gray-700 rounded p-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+            {errors.currentRole && <p className="text-red-400 text-xs mt-1">{errors.currentRole.message}</p>}
           </div>
           
           <div>
             <label className="block text-sm font-medium mb-1">Ruolo Sogno (Tra 12 mesi)</label>
-            <input {...register("dreamRole")} placeholder="Es. Sviluppatore Blockchain" className="w-full bg-gray-800 border border-gray-700 rounded p-2" />
+            <input {...register("dreamRole")} placeholder="Es. Sviluppatore Blockchain" className="w-full bg-gray-800 border border-gray-700 rounded p-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+            {errors.dreamRole && <p className="text-red-400 text-xs mt-1">{errors.dreamRole.message}</p>}
           </div>
         </div>
 
@@ -112,25 +118,25 @@ export default function ProfileSetup() {
           
           <div>
             <label className="block text-sm font-medium mb-1">Anti-Visione (Cosa ODI fare?)</label>
-            <textarea {...register("antiVision")} placeholder="Es. No telefonate a freddo, no sveglia presto..." className="w-full bg-gray-800 border border-gray-700 rounded p-2 h-20" />
+            <textarea {...register("antiVision")} placeholder="Es. No telefonate a freddo, no sveglia presto..." className="w-full bg-gray-800 border border-gray-700 rounded p-2 h-20 focus:ring-2 focus:ring-indigo-500 outline-none" />
             <p className="text-xs text-gray-500">Separa con virgole.</p>
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-1">Vantaggi Sleali (Cosa sai fare solo tu?)</label>
-            <textarea {...register("unfairAdvantages")} placeholder="Es. Parlo giapponese, ex atleta..." className="w-full bg-gray-800 border border-gray-700 rounded p-2 h-20" />
+            <textarea {...register("unfairAdvantages")} placeholder="Es. Parlo giapponese, ex atleta..." className="w-full bg-gray-800 border border-gray-700 rounded p-2 h-20 focus:ring-2 focus:ring-indigo-500 outline-none" />
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-1">Skill da Acquisire (Cosa vuoi imparare pagato?)</label>
-            <input {...register("keySkillsToAcquire")} placeholder="Es. React, Sales, Copywriting" className="w-full bg-gray-800 border border-gray-700 rounded p-2" />
+            <input {...register("keySkillsToAcquire")} placeholder="Es. React, Sales, Copywriting" className="w-full bg-gray-800 border border-gray-700 rounded p-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
           </div>
         </div>
 
-        {status === "success" && <p className="text-green-400 font-bold">Manifesto salvato. L'Agente è aggiornato.</p>}
-        {status === "error" && <p className="text-red-400 font-bold">Errore nel salvataggio.</p>}
+        {status === "success" && <p className="text-green-400 font-bold bg-green-900/20 p-3 rounded border border-green-500/30">Manifesto salvato. L'Agente è aggiornato.</p>}
+        {status === "error" && <p className="text-red-400 font-bold bg-red-900/20 p-3 rounded border border-red-500/30">Errore nel salvataggio. Riprova.</p>}
 
-        <button type="submit" disabled={isSubmitting} className="w-full bg-white text-black font-bold py-3 rounded hover:bg-gray-200 transition">
+        <button type="submit" disabled={isSubmitting} className="w-full bg-white text-black font-bold py-3 rounded hover:bg-gray-200 transition active:scale-95 disabled:opacity-50">
           {isSubmitting ? "Salvataggio..." : "Aggiorna il Cervello dell'Agente"}
         </button>
       </form>
