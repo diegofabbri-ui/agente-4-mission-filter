@@ -1,4 +1,4 @@
-// FORCE RAILWAY BUILD - FIX TYPES V3
+// --- RAILWAY FORCE BUILD FIX: USER PROFILE V2 ---
 import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
@@ -50,16 +50,17 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- FIX CRITICO: COLONNE AGGIUNTE E VERIFICATE ---
+// --- FIX CRITICO: DEFINIZIONE COMPLETA DEL PROFILO ---
 export interface UserAiProfileTable {
-  // QUESTE 3 COLONNE SONO QUELLE CHE RAILWAY NON VEDEVA:
+  // QUESTE SONO LE COLONNE CHE RAILWAY NON VEDEVA:
   id: string; 
+  user_id: string;
   full_name: string | null;
   min_hourly_rate: number | null;
   
-  user_id: string;
+  // Il cervello dell'Agente:
   career_goal_json: any; 
-  career_manifesto?: any;
+  career_manifesto?: any; 
   weights: any;
   
   created_at: Generated<Date>;
