@@ -49,22 +49,18 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- FIX DEFINITIVO: AGGIUNTE LE COLONNE MANCANTI ---
+// --- FIX: AGGIUNTE LE COLONNE MANCANTI ---
 export interface UserAiProfileTable {
-  // Questa colonna 'id' è fondamentale perché user.routes.ts fa .select('id')
-  id: string; 
-  
+  id: string; // <--- MANCAVA
   user_id: string;
   
-  // Questi campi sono usati per salvare il nome e la tariffa dal frontend
+  // Campi per il Profilo Dinamico (necessari per user.routes.ts)
   full_name: string | null;
   min_hourly_rate: number | null;
+  career_goal_json: any; // Nuovo sistema
   
-  // Questo campo salva il "Manifesto" (il protocollo di ricerca)
-  career_goal_json: any; 
-  
-  // Campi per retrocompatibilità
-  career_manifesto?: any;
+  // Legacy
+  career_manifesto: any; 
   weights: any;
   
   created_at: Generated<Date>;
