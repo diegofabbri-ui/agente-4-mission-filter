@@ -49,18 +49,22 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- FIX DEFINITIVO: TUTTE LE COLONNE MANCANTI ---
+// --- FIX DEFINITIVO: AGGIUNTE LE COLONNE MANCANTI ---
 export interface UserAiProfileTable {
-  id: string; // <--- MANCAVA
+  // Questa colonna 'id' è fondamentale perché user.routes.ts fa .select('id')
+  id: string; 
+  
   user_id: string;
   
-  // Dati Anagrafici e Tariffari (Mancavano e causavano errore TS2339)
+  // Questi campi sono usati per salvare il nome e la tariffa dal frontend
   full_name: string | null;
   min_hourly_rate: number | null;
   
-  // Dati "Cervello" Agente
-  career_goal_json: any; // Nuovo sistema
-  career_manifesto: any; // Legacy
+  // Questo campo salva il "Manifesto" (il protocollo di ricerca)
+  career_goal_json: any; 
+  
+  // Campi per retrocompatibilità
+  career_manifesto?: any;
   weights: any;
   
   created_at: Generated<Date>;
