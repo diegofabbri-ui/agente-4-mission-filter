@@ -3,7 +3,7 @@ import apiClient from '../lib/apiClient';
 import { 
   User, Play, CheckCircle, XCircle, ArrowRight, Briefcase, 
   Loader2, Cpu, Lock, Radar, AlertTriangle, ExternalLink, Paperclip, 
-  File as FileIcon, Zap, Calendar, Award, FileCode, FileText, Banknote
+  File as FileIcon, Zap, Calendar, Award, FileCode, FileText, Download
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -27,7 +27,7 @@ interface Mission {
   final_work_content?: string;
   client_requirements?: string;
   platform?: string;
-  type?: 'daily' | 'weekly' | 'monthly' | 'easy'; // Aggiunto 'easy'
+  type?: 'daily' | 'weekly' | 'monthly';
   raw_data?: any;
   command_count?: number; 
 }
@@ -87,7 +87,7 @@ const detectContentFormat = (content: string, commandCount: number = 0) => {
         return { ext: 'css', mime: 'text/css', icon: FileCode };
     }
 
-    // 3. FALLBACK INTELLIGENTE A MARKDOWN
+    // 3. FALLBACK INTELLIGENTE A MARKDOWN (Meglio di TXT per formattazione)
     return { ext: 'md', mime: 'text/markdown', icon: FileText };
 };
 
@@ -248,6 +248,7 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
       
       const a = document.createElement('a');
       a.href = url;
+      // Nome file: "MissionID_StepX.ext"
       a.download = `Mission_${mission.id.substring(0,8)}_Step${stepNumber}.${fileInfo.ext}`;
       document.body.appendChild(a);
       a.click();
@@ -273,8 +274,7 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
                 {mission.type && (
                     <span className={`px-3 py-1 rounded text-[10px] uppercase font-bold tracking-widest border flex items-center justify-center
                         ${mission.type === 'weekly' ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' : 
-                          mission.type === 'monthly' ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' :
-                          mission.type === 'easy' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-500/30' :
+                          mission.type === 'monthly' ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' : 
                           'bg-yellow-900/20 text-yellow-400 border-yellow-500/30'}`}>
                         {mission.type}
                     </span>
@@ -363,6 +363,8 @@ function ActiveMissionCard({ mission, onExecute, onComplete }: { mission: Missio
 // --- CARD DISCOVERY (Layout 1 - Radar) ---
 function MissionDiscoveryCard({ mission, onDevelop, loading }: any) {
     const [isOpen, setIsOpen] = useState(false);
+    
+    // Parsing dei dati grafici
     let tasksBreakdown = [];
     try {
         const raw = typeof mission.raw_data === 'string' ? JSON.parse(mission.raw_data) : mission.raw_data;
@@ -371,9 +373,12 @@ function MissionDiscoveryCard({ mission, onDevelop, loading }: any) {
 
     return (
       <div className={`relative bg-[#13151a] border border-gray-800/50 rounded-xl overflow-hidden mb-4 transition-all ${isOpen ? 'ring-1 ring-indigo-500/50 shadow-2xl' : 'hover:border-gray-700'}`}>
+        
+        {/* HEADER */}
         <div className="p-5 flex justify-between items-start cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
             <div className="flex items-start gap-4">
-                <div className={`mt-1 w-1.5 h-10 rounded-full ${mission.type === 'monthly' ? 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]' : mission.type === 'weekly' ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : mission.type === 'easy' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]'}`}></div>
+                <div className={`mt-1 w-1.5 h-10 rounded-full ${mission.type === 'monthly' ? 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]' : mission.type === 'weekly' ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]'}`}></div>
+                
                 <div>
                     <h3 className="text-white font-bold text-lg leading-tight group-hover:text-indigo-300 transition-colors">{mission.title}</h3>
                     <div className="flex items-center gap-2 mt-1">
@@ -382,6 +387,7 @@ function MissionDiscoveryCard({ mission, onDevelop, loading }: any) {
                     </div>
                 </div>
             </div>
+
             <div className="flex flex-col items-end gap-2">
                 <span className="text-emerald-400 font-mono font-bold text-lg">€{mission.reward_amount}</span>
                 <button 
@@ -394,6 +400,8 @@ function MissionDiscoveryCard({ mission, onDevelop, loading }: any) {
                 </button>
             </div>
         </div>
+
+        {/* EXPANDED CONTENT */}
         <div className={`grid transition-all duration-300 ease-in-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
             <div className="overflow-hidden">
                 <div className="px-5 pb-5 pt-0 border-t border-gray-800/50">
@@ -401,11 +409,26 @@ function MissionDiscoveryCard({ mission, onDevelop, loading }: any) {
                         <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Briefing Missione</span>
                         <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{mission.description}</p>
                     </div>
-                    {tasksBreakdown.length > 0 && <div className="mb-4"><TaskPolygonGraph tasks={tasksBreakdown} /></div>}
+
+                    {/* Grafico Geometrico */}
+                    {tasksBreakdown.length > 0 && (
+                        <div className="mb-4">
+                            <TaskPolygonGraph tasks={tasksBreakdown} />
+                        </div>
+                    )}
+
+                    {/* Analisi AI e Link Fonte */}
                     <div className="flex items-center justify-between bg-black/20 p-3 rounded-lg border border-white/5">
                         <p className="text-xs text-indigo-300 italic">"{mission.analysis_notes}"</p>
+                        
                         {mission.source_url && (
-                            <a href={mission.source_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-white transition-colors bg-white/5 px-3 py-1.5 rounded hover:bg-white/10" onClick={(e) => e.stopPropagation()}>
+                            <a 
+                                href={mission.source_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-white transition-colors bg-white/5 px-3 py-1.5 rounded hover:bg-white/10"
+                                onClick={(e) => e.stopPropagation()} 
+                            >
                                 <ExternalLink className="w-3 h-3" /> VAI ALLA FONTE
                             </a>
                         )}
@@ -428,8 +451,9 @@ export default function Dashboard() {
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [selectedDevMissionId, setSelectedDevMissionId] = useState<string>("");
   const [mounted, setMounted] = useState(false);
-  // AGGIUNTO 'easy' AL TIPO
-  const [huntMode, setHuntMode] = useState<'daily' | 'weekly' | 'monthly' | 'easy'>('daily');
+  
+  // SELETTORE MODALITÀ DI CACCIA
+  const [huntMode, setHuntMode] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
   useEffect(() => setMounted(true), []);
 
@@ -456,15 +480,16 @@ export default function Dashboard() {
   const developedMissions = missions.filter(m => m.status === 'developed');
   const activeMissions = missions.filter(m => ['active', 'completed'].includes(m.status));
 
+  // --- HANDLERS ---
+  
   const handleHunt = async () => {
     if (isHunting) return;
     setIsHunting(true);
     
-    // --- ROUTING DINAMICO AGGIORNATO ---
-    let endpoint = '/missions/hunt'; // Default Daily
+    // Routing dinamico
+    let endpoint = '/missions/hunt';
     if (huntMode === 'weekly') endpoint = '/missions/hunt/weekly';
     if (huntMode === 'monthly') endpoint = '/missions/hunt/monthly';
-    if (huntMode === 'easy') endpoint = '/missions/hunt/easy'; // <--- NUOVO ENDPOINT
 
     try {
         const res = await apiClient.post(endpoint);
@@ -496,60 +521,76 @@ export default function Dashboard() {
     try { await apiClient.patch(`/missions/${id}/status`, { status: 'active' }); await fetchMissions(); showNotification("Missione accettata! Agente Attivato.", 'success'); } catch (e) { showNotification("Errore accettazione.", 'error'); }
   };
 
+  // --- NUOVO: EXECUTE CON POLLING (ASYNC) ---
   const handleExecuteProxy = async (id: string, text: string, files: AttachedFile[]) => {
+    // 1. Snapshot iniziale per capire quando cambia
     const initialMission = missions.find(m => m.id === id);
     const initialContent = initialMission?.final_work_content || "";
+
+    // 2. Avvia Job in background
     await apiClient.post(`/missions/${id}/execute`, { clientRequirements: text, attachments: files });
+    
     showNotification("Agente al lavoro... Attendi il completamento.", 'success');
 
+    // 3. Polling per 120 secondi
     return new Promise<void>((resolve, reject) => {
         let attempts = 0;
-        const maxAttempts = 40; 
+        const maxAttempts = 40; // 120s totali
+
         const intervalId = setInterval(async () => {
             attempts++;
             try {
+                // Fetch silenzioso
                 const res = await apiClient.get('/missions/my-missions?limit=50');
                 const rawMissions = res.data.data;
                 const currentMission = rawMissions.find((m: any) => m.id === id);
                 const currentContent = currentMission?.final_work_content || "";
 
+                // CHECK: Se il contenuto è diverso dall'inizio -> FATTO
                 if (currentContent !== initialContent) {
                     clearInterval(intervalId);
+                    
+                    // Aggiorna stato React
                     const parsedData = rawMissions.map((m: any) => ({
                         ...m,
                         final_deliverable_json: typeof m.final_deliverable_json === 'string' ? JSON.parse(m.final_deliverable_json) : m.final_deliverable_json
                     }));
                     setMissions(parsedData);
+                    
                     showNotification("Step completato con successo!", 'success');
                     resolve();
                 }
+
                 if (attempts >= maxAttempts) {
                     clearInterval(intervalId);
                     showNotification("L'operazione sta richiedendo molto tempo. Ricarica la pagina.", 'error');
                     reject(new Error("Polling Timeout"));
                 }
-            } catch (e) {}
+            } catch (e) {
+                // Ignora errori di rete temporanei durante il polling
+            }
         }, 3000);
     });
   };
 
   const handleComplete = async (id: string) => {
       if(!confirm("⚠️ ATTENZIONE: Confermi il completamento? \n\nLa memoria dell'agente per questa missione verrà CANCELLATA irreversibilmente.\nNon potrai più interagire con questo contesto.")) return;
+      
       try {
           await apiClient.post(`/missions/${id}/complete`);
           showNotification("Missione completata e archiviata.", 'success');
           await fetchMissions();
-      } catch (e) { showNotification("Errore durante il completamento.", 'error'); }
+      } catch (e) { 
+          showNotification("Errore durante il completamento.", 'error'); 
+      }
   };
 
   const currentDevMission = developedMissions.find(m => m.id === selectedDevMissionId) || developedMissions[0];
-  
-  // --- UI DINAMICA AGGIORNATA ---
+
   const getHuntUI = () => {
       switch(huntMode) {
           case 'weekly': return { color: 'blue', label: 'CACCIA SETTIMANALE (SPRINT)', icon: Calendar };
           case 'monthly': return { color: 'purple', label: 'CACCIA MENSILE (RETAINER)', icon: Award };
-          case 'easy': return { color: 'emerald', label: 'EASY INCOME (QUICK CASH)', icon: Banknote }; // <--- NUOVA UI
           default: return { color: 'yellow', label: 'CACCIA GIORNALIERA (DAILY)', icon: Zap };
       }
   };
@@ -559,6 +600,7 @@ export default function Dashboard() {
     <div className={`min-h-screen bg-[#050507] text-gray-100 font-sans pb-20 selection:bg-indigo-500/30 selection:text-white transition-opacity duration-1000 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
       {notification && <NotificationToast message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
       <div className="fixed inset-0 pointer-events-none"><div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-900/10 rounded-full blur-[120px]" /><div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 rounded-full blur-[120px]" /></div>
+      
       <nav className="sticky top-4 z-50 mx-4 md:mx-8 mb-12">
         <div className="bg-[#0f1115]/80 backdrop-blur-md border border-white/5 rounded-2xl px-6 py-4 flex justify-between items-center shadow-2xl">
           <div className="flex items-center gap-3"><div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-xl flex items-center justify-center shadow-lg"><span className="font-bold text-white text-lg">W</span></div><div className="flex flex-col"><span className="text-lg font-bold tracking-tight text-white leading-none">MOON</span><span className="text-[10px] font-medium text-gray-500 tracking-[0.2em] uppercase">Intelligence Core</span></div></div>
@@ -567,6 +609,7 @@ export default function Dashboard() {
       </nav>
 
       <main className="max-w-7xl mx-auto px-6 relative z-10 space-y-16">
+        
         {/* 1. RADAR MISSIONI */}
         <section>
           <SectionHeader title="1. Radar Missioni" icon={Radar} colorClass={`text-${huntUI.color}-400`} bgClass={`bg-${huntUI.color}-400/10`} 
@@ -576,25 +619,33 @@ export default function Dashboard() {
                         <button onClick={() => setHuntMode('daily')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'daily' ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' : 'text-gray-500 hover:text-white'}`}>Daily</button>
                         <button onClick={() => setHuntMode('weekly')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'weekly' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-gray-500 hover:text-white'}`}>Weekly</button>
                         <button onClick={() => setHuntMode('monthly')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'monthly' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' : 'text-gray-500 hover:text-white'}`}>Monthly</button>
-                        <button onClick={() => setHuntMode('easy')} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${huntMode === 'easy' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'text-gray-500 hover:text-white'}`}>Easy ($)</button>
                     </div>
-                    
-                    {/* BOTTONE SCANSIONE DINAMICO */}
-                    <button onClick={handleHunt} disabled={isHunting} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold tracking-wide transition-all shadow-xl active:scale-95 w-full justify-center 
+                    <button 
+                        onClick={handleHunt} 
+                        disabled={isHunting}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold tracking-wide transition-all shadow-xl active:scale-95 w-full justify-center
                         ${isHunting ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
                           huntMode === 'weekly' ? 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-blue-500/20' :
                           huntMode === 'monthly' ? 'bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 text-white shadow-purple-500/20' :
-                          huntMode === 'easy' ? 'bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white shadow-emerald-500/20' :
                           'bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white shadow-orange-500/20'
-                        }`}>
-                        {isHunting ? <Loader2 className="w-4 h-4 animate-spin" /> : <huntUI.icon className="w-4 h-4" />} 
+                        }`}
+                    >
+                        {isHunting ? <Loader2 className="w-4 h-4 animate-spin" /> : <huntUI.icon className="w-4 h-4" />}
                         {isHunting ? 'SCANNING...' : huntUI.label}
                     </button>
                 </div>
             }
           />
           <div className="grid grid-cols-1 gap-4">
-            {pendingMissions.length === 0 ? (<div className="p-12 text-center border-2 border-dashed border-gray-800 rounded-3xl opacity-50"><p className="text-gray-500">Radar Inattivo. Seleziona una modalità e avvia la caccia.</p></div>) : (pendingMissions.map((mission, idx) => (<div key={mission.id} className="animate-in fade-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}><MissionDiscoveryCard mission={mission} onDevelop={handleDevelop} loading={loadingId === mission.id} /></div>)))}
+            {pendingMissions.length === 0 ? (
+                <div className="p-12 text-center border-2 border-dashed border-gray-800 rounded-3xl opacity-50"><p className="text-gray-500">Radar Inattivo. Seleziona una modalità e avvia la caccia.</p></div>
+            ) : (
+                pendingMissions.map((mission, idx) => (
+                    <div key={mission.id} className="animate-in fade-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
+                        <MissionDiscoveryCard mission={mission} onDevelop={handleDevelop} loading={loadingId === mission.id} />
+                    </div>
+                ))
+            )}
           </div>
         </section>
 
@@ -602,28 +653,25 @@ export default function Dashboard() {
         <section>
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8">
             <SectionHeader title="2. Laboratorio Tattico" icon={Cpu} colorClass="text-indigo-400" bgClass="bg-indigo-500/10" />
-            <div className="relative w-full md:w-96 z-20">
-                <select value={selectedDevMissionId} onChange={(e) => setSelectedDevMissionId(e.target.value)} className="w-full bg-[#0a0a0c] border border-gray-700 text-white text-sm rounded-xl block p-3 pr-10 shadow-xl" disabled={developedMissions.length === 0}>
-                    {developedMissions.map(m => (
-                        <option key={m.id} value={m.id}>
-                            [{m.type ? m.type.toUpperCase() : 'DAILY'}] {m.title.substring(0, 50)}...
-                        </option>
-                    ))}
-                </select>
-            </div>
+            <div className="relative w-full md:w-96 z-20"><select value={selectedDevMissionId} onChange={(e) => setSelectedDevMissionId(e.target.value)} className="w-full bg-[#0a0a0c] border border-gray-700 text-white text-sm rounded-xl block p-3 pr-10 shadow-xl" disabled={developedMissions.length === 0}>{developedMissions.map(m => (<option key={m.id} value={m.id}>[{m.type ? m.type.toUpperCase() : 'DAILY'}] {m.title.substring(0, 50)}...</option>))}</select></div>
           </div>
           <GlassCard className="min-h-[600px] flex flex-col">
             {currentDevMission ? (
               <div className="p-8 flex-1 overflow-y-auto space-y-8 custom-scrollbar">
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-center">
                     <div>
-                        <span className={`inline-block mb-2 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest border ${currentDevMission.type === 'weekly' ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' : currentDevMission.type === 'monthly' ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' : currentDevMission.type === 'easy' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-500/30' : 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30'}`}>
+                        <span className={`inline-block mb-2 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest border ${currentDevMission.type === 'weekly' ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' : currentDevMission.type === 'monthly' ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' : 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30'}`}>
                             {currentDevMission.type || 'DAILY'}
                         </span>
                         <h3 className="text-xl font-bold text-white">{currentDevMission.title}</h3>
                     </div>
                     {currentDevMission.source_url && (
-                        <a href={currentDevMission.source_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-indigo-400 hover:text-white text-xs font-bold uppercase tracking-widest bg-[#13151a] px-3 py-1 rounded border border-gray-700 hover:border-indigo-500 transition-all">
+                        <a 
+                            href={currentDevMission.source_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="flex items-center gap-2 text-indigo-400 hover:text-white text-xs font-bold uppercase tracking-widest bg-[#13151a] px-3 py-1 rounded border border-gray-700 hover:border-indigo-500 transition-all"
+                        >
                             <ExternalLink className="w-3 h-3" /> Link Diretto
                         </a>
                     )}
@@ -644,6 +692,7 @@ export default function Dashboard() {
                     </div>
                 </div>
 
+                {/* --- NUOVA SEZIONE: PIANO D'AZIONE (NEXT STEPS) --- */}
                 <div className="bg-indigo-900/10 border border-indigo-500/20 p-6 rounded-xl mt-4">
                     <Label text="Piano d'Azione (Next Steps)" />
                     <div className="grid md:grid-cols-3 gap-4 mt-3">
