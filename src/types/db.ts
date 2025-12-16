@@ -1,4 +1,3 @@
-// --- RAILWAY FORCE BUILD FIX: USER PROFILE V2 ---
 import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
@@ -50,19 +49,16 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- FIX CRITICO: DEFINIZIONE COMPLETA DEL PROFILO ---
+// --- QUESTA È L'INTERFACCIA CHE CAUSA L'ERRORE ---
+// Deve contenere ESATTAMENTE queste colonne per far felice Railway
 export interface UserAiProfileTable {
-  // QUESTE SONO LE COLONNE CHE RAILWAY NON VEDEVA:
-  id: string; 
+  id: string;                      // <--- MANCAVA
   user_id: string;
-  full_name: string | null;
-  min_hourly_rate: number | null;
-  
-  // Il cervello dell'Agente:
-  career_goal_json: any; 
-  career_manifesto?: any; 
+  full_name: string | null;        // <--- MANCAVA
+  min_hourly_rate: number | null;  // <--- MANCAVA
+  career_goal_json: any;           // Presente, ma serve il resto
+  career_manifesto?: any;
   weights: any;
-  
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
