@@ -1,3 +1,4 @@
+// FORCE RAILWAY BUILD - FIX TYPES V3
 import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
@@ -49,21 +50,15 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- FIX DEFINITIVO: AGGIUNTE LE COLONNE MANCANTI ---
+// --- FIX CRITICO: COLONNE AGGIUNTE E VERIFICATE ---
 export interface UserAiProfileTable {
-  // Questa colonna 'id' è fondamentale per user.routes.ts
+  // QUESTE 3 COLONNE SONO QUELLE CHE RAILWAY NON VEDEVA:
   id: string; 
-  
-  user_id: string;
-  
-  // Questi campi mancavano e causavano l'errore "Property 'full_name' does not exist"
   full_name: string | null;
   min_hourly_rate: number | null;
   
-  // Il cervello dell'agente
+  user_id: string;
   career_goal_json: any; 
-  
-  // Campi Legacy/Opzionali
   career_manifesto?: any;
   weights: any;
   
