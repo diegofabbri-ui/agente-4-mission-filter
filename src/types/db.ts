@@ -2,7 +2,7 @@ import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
   users: UserTable;
-  missions: MissionsTable; // Rinominato per coerenza con il resto del codice
+  missions: MissionTable;
   user_ai_profile: UserAiProfileTable;
   mission_threads: MissionThreadTable;
   user_preferences: UserPreferencesTable;
@@ -19,8 +19,8 @@ interface UserTable {
   status: 'active' | 'inactive';
 }
 
-interface MissionsTable { // Rinominato da MissionTable a MissionsTable per coerenza
-  id: string; // Kysely gestisce gli UUID come stringhe di solito
+interface MissionTable {
+  id: string; // Modificato da Generated<string> a string per coerenza UUID
   user_id: string | null;
   title: string;
   description: string | null;
@@ -39,8 +39,8 @@ interface MissionsTable { // Rinominato da MissionTable a MissionsTable per coer
   final_deliverable_json: any | null;
   final_work_content: string | null;
   client_requirements: string | null;
-  created_at: ColumnType<Date, string | undefined, never>;
-  updated_at: ColumnType<Date, string | undefined, never>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
   source: string | null;
   raw_data: any | null;
   type?: 'daily' | 'weekly' | 'monthly';
@@ -49,14 +49,14 @@ interface MissionsTable { // Rinominato da MissionTable a MissionsTable per coer
   max_commands?: number;
 }
 
-// FIX: Aggiunte le colonne mancanti che causavano l'errore di build
-export interface UserAiProfileTable {
-  id: string; // <--- MANCAVA
+// --- FIX: AGGIUNTE COLONNE MANCANTI ---
+interface UserAiProfileTable {
+  id: string; // <--- MANCAVA: Fondamentale per le query select('id')
   user_id: string;
   full_name: string | null; // <--- MANCAVA
   min_hourly_rate: number | null; // <--- MANCAVA
-  career_goal_json: any; // <--- NUOVO SISTEMA (JSON Manifesto)
-  career_manifesto?: any; // Compatibilità legacy
+  career_goal_json: any; // <--- MANCAVA (Nuovo sistema manifesto)
+  career_manifesto: any; // Legacy
   weights: any;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
