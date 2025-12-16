@@ -2,21 +2,21 @@ import axios from 'axios';
 import { db } from '../infra/db';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto'; // Import necessario per randomUUID
 
 export class PerplexityService {
   private kbPath: string;
 
   constructor() {
     const isProd = process.env.NODE_ENV === 'production';
-    // Gestione percorsi per trovare i prompt di sistema (comportamento Headhunter)
+    // Gestione percorsi dinamica per trovare i prompt di sistema sia in dev che in prod
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
       : path.join(process.cwd(), 'src', 'knowledge_base');
   }
 
   /**
-   * Helper: Carica file di sistema (es. il tono di voce dell'Headhunter).
-   * NON viene più usato per caricare il "cosa cercare", ma solo il "come comportarsi".
+   * Carica i file di sistema (es. il tono di voce dell'Headhunter).
    */
   private loadTextFile(filename: string): string {
     try {
@@ -41,7 +41,7 @@ export class PerplexityService {
    * Trasforma il JSON del profilo utente (dal DB) in un Prompt di Ricerca strutturato.
    */
   private generateUserProtocol(profile: any): string {
-    // 1. Fallback se il profilo è vuoto o non ancora compilato
+    // 1. Fallback se il profilo è vuoto
     if (!profile || !profile.dreamRole) {
         return `
         === GENERIC SEARCH PROTOCOL ===
@@ -51,18 +51,17 @@ export class PerplexityService {
         `;
     }
 
-    // 2. Estrazione e Pulizia Dati
-    const dreamRole = profile.dreamRole;
-    
-    // Gestione array vs stringhe (per robustezza)
+    // 2. Estrazione dati dal Manifesto salvato
+    // Gestione robusta: converte array in stringhe se necessario
     const formatList = (val: any) => Array.isArray(val) ? val.join(", ") : (val || "None");
     
+    const dreamRole = profile.dreamRole;
     const antiVision = formatList(profile.antiVision);
     const skills = formatList(profile.keySkillsToAcquire);
     const advantages = formatList(profile.unfairAdvantages);
     const specificQuestions = profile.specificQuestions || "No specific extra instructions.";
 
-    // 3. Costruzione Prompt Personalizzato
+    // 3. Costruzione Prompt su Misura
     return `
     === USER CUSTOM MANIFESTO (SOURCE OF TRUTH) ===
     
@@ -78,7 +77,7 @@ export class PerplexityService {
        Do NOT include jobs that involve: ${antiVision}
        -> Filter these out aggressively.
 
-    4. 📝 SPECIFIC USER INSTRUCTIONS / QUESTIONS:
+    4. 📝 SPECIFIC USER INSTRUCTIONS:
        "${specificQuestions}"
        -> Pay close attention to these custom constraints or requests.
 
@@ -92,13 +91,13 @@ export class PerplexityService {
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<number> {
     console.log(`\n🚀 [PERPLEXITY] Avvio Caccia ${mode.toUpperCase()} su misura per User: ${userId}`);
 
-    // Generiamo il protocollo specifico per QUESTO utente in QUESTO momento
+    // Genera il protocollo specifico per QUESTO utente
     const userProtocol = this.generateUserProtocol(clientProfile);
 
     // Determina l'orizzonte temporale
-    let recency = 'day'; // Default Daily (24h)
-    if (mode === 'weekly') recency = 'week';   // 7 giorni
-    if (mode === 'monthly') recency = 'month'; // 30 giorni
+    let recency = 'day';
+    if (mode === 'weekly') recency = 'week';
+    if (mode === 'monthly') recency = 'month';
 
     return await this.performSearch(userId, userProtocol, mode, recency);
   }
@@ -108,14 +107,14 @@ export class PerplexityService {
    */
   private async performSearch(userId: string, protocol: string, mode: string, recency: string): Promise<number> {
     
-    // Carichiamo il "Character" dell'Headhunter (file statico di sistema)
+    // Carica il "Character" dell'Headhunter (file statico di sistema)
     let systemInstructionFile = 'system_headhunter_prompt.md';
     if (mode === 'weekly') systemInstructionFile = 'system_headhunter_weekly.md';
     
     let systemBehavior = this.loadTextFile(systemInstructionFile);
     if (!systemBehavior) systemBehavior = "You are an expert headhunter finding high-value remote gigs.";
 
-    // Costruiamo il messaggio finale per l'AI
+    // Costruisce il messaggio finale per l'AI
     const searchContext = `
       ⚠️ CRITICAL: IGNORE any previous generic instructions. 
       Follow the USER CUSTOM MANIFESTO below strictly.
@@ -133,9 +132,9 @@ export class PerplexityService {
       - title: Job Title
       - platform: Company or Platform Name
       - hourly_rate: Estimated pay (string)
-      - difficulty: "High", "Medium", or "Low" based on requirements
+      - difficulty: "High", "Medium", or "Low"
       - action_link: Direct URL to apply
-      - why_it_works: One sentence explaining why this fits the User Manifesto.
+      - why_it_works: One sentence explaining fit.
     `;
 
     console.log(`🔍 [QUERY] Esecuzione ricerca dinamica su Perplexity...`);
@@ -149,7 +148,7 @@ export class PerplexityService {
             { role: 'system', content: systemBehavior },
             { role: 'user', content: searchContext }
           ],
-          temperature: 0.1, // Bassa temperatura per rispettare i vincoli
+          temperature: 0.1, // Bassa temperatura per seguire le regole rigidamente
           max_tokens: 4000
         },
         { headers: { 'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}` } }
@@ -167,7 +166,7 @@ export class PerplexityService {
   }
 
   /**
-   * Processa il JSON e salva nel DB.
+   * Processa il JSON e salva nel DB (con FIX per le date).
    */
   private async processAndSaveOpportunities(rawContent: string, userId: string, type: 'daily' | 'weekly' | 'monthly'): Promise<number> {
     let opportunities = [];
@@ -215,9 +214,10 @@ export class PerplexityService {
             estimated_duration_hours: 1, 
             status: 'pending',
             type: type,
-            platform: "Custom User Hunt", // Tagghiamo la provenienza
-            match_score: 100, // Massima priorità perché richiesto dall'utente
-            created_at: new Date(),
+            platform: "Custom User Hunt",
+            match_score: 100,
+            // --- FIX CRITICO: Conversione esplicita a stringa ISO per evitare l'errore di tipo Date ---
+            created_at: new Date().toISOString() as any,
             raw_data: JSON.stringify(opp)
           })
           .execute();
@@ -229,7 +229,7 @@ export class PerplexityService {
     return savedCount;
   }
 
-  // Helper per estrarre numeri (es. "$25/h" -> 25)
+  // Helper per estrarre numeri dal compenso
   private parseReward(rewardStr: string): number {
     if (!rewardStr) return 0;
     const matches = rewardStr.match(/\d+/);
