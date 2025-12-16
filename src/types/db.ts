@@ -1,3 +1,4 @@
+// [RAILWAY FIX] FORCE UPDATE V99 - DEFINIZIONI DB COMPLETE
 import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
@@ -49,16 +50,19 @@ interface MissionTable {
   max_commands?: number;
 }
 
-// --- QUESTA È L'INTERFACCIA CHE CAUSA L'ERRORE ---
-// Deve contenere ESATTAMENTE queste colonne per far felice Railway
+// --- QUESTA È LA PARTE CRITICA ---
+// Deve includere TUTTI i campi che usiamo in user.routes.ts
 export interface UserAiProfileTable {
-  id: string;                      // <--- MANCAVA
-  user_id: string;
-  full_name: string | null;        // <--- MANCAVA
-  min_hourly_rate: number | null;  // <--- MANCAVA
-  career_goal_json: any;           // Presente, ma serve il resto
+  id: string;                      // NECESSARIO
+  user_id: string;                 // NECESSARIO
+  full_name: string | null;        // NECESSARIO
+  min_hourly_rate: number | null;  // NECESSARIO
+  career_goal_json: any;           // NECESSARIO
+  
+  // Campi extra per compatibilità
   career_manifesto?: any;
   weights: any;
+  
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
