@@ -51,19 +51,19 @@ interface MissionTable {
 
 // --- FIX DEFINITIVO: AGGIUNTE LE COLONNE MANCANTI ---
 export interface UserAiProfileTable {
-  // Questa colonna 'id' è fondamentale perché user.routes.ts fa .select('id')
+  // Questa colonna 'id' è fondamentale per user.routes.ts
   id: string; 
   
   user_id: string;
   
-  // Questi campi sono usati per salvare il nome e la tariffa dal frontend
+  // Questi campi mancavano e causavano l'errore "Property 'full_name' does not exist"
   full_name: string | null;
   min_hourly_rate: number | null;
   
-  // Questo campo salva il "Manifesto" (il protocollo di ricerca)
+  // Il cervello dell'agente
   career_goal_json: any; 
   
-  // Campi per retrocompatibilità
+  // Campi Legacy/Opzionali
   career_manifesto?: any;
   weights: any;
   
