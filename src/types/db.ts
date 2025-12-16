@@ -2,7 +2,7 @@ import { Generated, ColumnType } from 'kysely';
 
 export interface Database {
   users: UserTable;
-  missions: MissionsTable;
+  missions: MissionTable;
   user_ai_profile: UserAiProfileTable;
   mission_threads: MissionThreadTable;
   user_preferences: UserPreferencesTable;
@@ -19,8 +19,8 @@ interface UserTable {
   status: 'active' | 'inactive';
 }
 
-interface MissionsTable {
-  id: string; 
+interface MissionTable {
+  id: string;
   user_id: string | null;
   title: string;
   description: string | null;
@@ -49,17 +49,19 @@ interface MissionsTable {
   max_commands?: number;
 }
 
-// --- FIX CRITICO: AGGIUNTE COLONNE MANCANTI ---
+// --- FIX DEFINITIVO: TUTTE LE COLONNE MANCANTI ---
 export interface UserAiProfileTable {
-  id: string; // <--- QUESTA MANCAVA E BLOCCAVA select('id')
+  id: string; // <--- MANCAVA
   user_id: string;
-  full_name: string | null; // <--- QUESTA MANCAVA
-  min_hourly_rate: number | null; // <--- QUESTA MANCAVA
-  career_goal_json: any; // <--- QUESTA MANCAVA (Nuovo sistema manifesto)
   
-  // Campi Legacy/Opzionali
-  career_manifesto?: any; 
-  weights?: any;
+  // Dati Anagrafici e Tariffari (Mancavano e causavano errore TS2339)
+  full_name: string | null;
+  min_hourly_rate: number | null;
+  
+  // Dati "Cervello" Agente
+  career_goal_json: any; // Nuovo sistema
+  career_manifesto: any; // Legacy
+  weights: any;
   
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
