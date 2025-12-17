@@ -3,222 +3,293 @@ import { db } from '../infra/db';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import OpenAI from 'openai';
 
 export class PerplexityService {
   private kbPath: string;
+  private openai: OpenAI;
 
   constructor() {
+    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const isProd = process.env.NODE_ENV === 'production';
+    // Gestione dinamica dei percorsi per Dev e Prod
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
       : path.join(process.cwd(), 'src', 'knowledge_base');
   }
 
+  /**
+   * Carica file dalla Knowledge Base cercando in varie sottocartelle
+   */
   private loadTextFile(filename: string): string {
     try {
       const possiblePaths = [
         path.join(this.kbPath, filename),
         path.join(this.kbPath, 'developer', filename),
-        path.join(process.cwd(), 'src', 'knowledge_base', filename)
+        path.join(this.kbPath, 'guardrails', filename),
+        path.join(process.cwd(), 'src', 'knowledge_base', filename) // Fallback diretto
       ];
+
       for (const p of possiblePaths) {
         if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8');
+      }
+      // Se il file è opzionale, non intasare i log, ma se è critico serve saperlo
+      if (filename.includes('prompt') || filename.includes('reviewer')) {
+          console.warn(`⚠️ File KB non trovato: ${filename}`);
       }
       return "";
     } catch (e) { return ""; }
   }
 
-  // --- GENERAZIONE PROTOCOLLO DI RICERCA ---
-  private generateUserProtocol(profile: any): string {
-    if (!profile || !profile.dreamRole) return `TARGET: Remote Jobs`;
-
+  /**
+   * Genera il contesto di ricerca dinamico basato sul profilo utente
+   */
+  private generateSearchContext(profile: any, mode: string): string {
     const aiData = profile.generatedSearchLogic || {};
     
-    // Uniamo le keyword positive
-    const posKeywords = Array.isArray(aiData.positive_keywords) && aiData.positive_keywords.length > 0
-        ? aiData.positive_keywords.join(" OR ") // Usa OR per ampliare la ricerca
-        : (profile.whatToDo || profile.dreamRole);
+    // 1. Costruzione Query Booleana (Dynamic SEO Logic)
+    const posKeywords = Array.isArray(aiData.positive_keywords) 
+        ? aiData.positive_keywords.join(" OR ") 
+        : (profile.dreamRole || "Remote Jobs");
+        
+    const negKeywords = Array.isArray(aiData.negative_keywords) 
+        ? aiData.negative_keywords.join(" -") 
+        : "";
 
-    // Uniamo le keyword negative
-    const negKeywords = Array.isArray(aiData.negative_keywords) && aiData.negative_keywords.length > 0
-        ? aiData.negative_keywords.join(", ") 
-        : "Scams, MLM, Unpaid";
+    // 2. Caricamento Fonti (Sources Masterlist)
+    const sourcesRaw = this.loadTextFile('sources_masterlist.json');
+    let targetSites = "";
+    try {
+        const src = JSON.parse(sourcesRaw);
+        if (src.global_remote_platforms) {
+            // Estrae i domini per creare operatori site: (es. site:greenhouse.io OR site:lever.co)
+            targetSites = src.global_remote_platforms
+                .map((s:any) => `site:${new URL(s.url).hostname}`)
+                .slice(0, 15) // Limitiamo a 15 per non rompere il prompt
+                .join(" OR ");
+        }
+    } catch(e) {
+        // Fallback se il JSON fallisce
+        targetSites = "site:greenhouse.io OR site:lever.co OR site:weworkremotely.com"; 
+    }
+
+    // 3. Definizione Recency
+    let recency = '24h';
+    if (mode === 'weekly') recency = '7d';
+    if (mode === 'monthly') recency = '30d';
 
     return `
-    === USER AVATAR ===
-    ROLE: "${profile.dreamRole}"
-    QUERY BOOLEAN LOGIC: (${posKeywords}) 
-    STRICTLY EXCLUDE: ${negKeywords}
-    USER NOTES: "${profile.advancedInstructions || "No extra rules"}"
+    SEARCH QUERY LOGIC: 
+    (${posKeywords}) AND ("remote" OR "contract") ${negKeywords ? '-' + negKeywords : ''}
+    
+    SOURCE TARGETING (Priority):
+    ${targetSites}
+    
+    TIMEFRAME: Last ${recency}
+    
+    TASK: Find 10-15 RAW job listings. 
+    NOTE: Do not filter strictly yet. The Auditor will clean the list.
+    OUTPUT: JSON Array with keys: title, company_name, source_url, snippet, salary_raw.
     `;
   }
 
+  /**
+   * --- MAIN ENTRY POINT ---
+   * Esegue la ricerca a due fasi: Hunter (Perplexity) -> Auditor (GPT-4o)
+   */
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<number> {
-    console.log(`\n🚀 [PERPLEXITY] Avvio Caccia ${mode.toUpperCase()} per User: ${userId}`);
-    const userProtocol = this.generateUserProtocol(clientProfile);
+    console.log(`\n🚀 [PERPLEXITY] Avvio Caccia ${mode.toUpperCase()} (Protocollo A3-A)`);
+
+    // --- FASE 1: THE HUNTER (Perplexity) ---
+    // Obiettivo: Trovare volume, non perfezione.
     
-    // Mapping corretto della "recency" per Perplexity
-    let recency = 'day'; 
-    if (mode === 'weekly') recency = 'week';
-    if (mode === 'monthly') recency = 'month';
+    // Selezione Prompt Hunter
+    let hunterFile = 'system_headhunter_prompt.md'; // Daily
+    if (mode === 'weekly') hunterFile = 'system_headhunter_weekly.md';
+    if (mode === 'monthly') hunterFile = 'system_headhunter_monthly.md';
 
-    return await this.performSearch(userId, userProtocol, mode, recency);
-  }
+    const hunterSystemPrompt = this.loadTextFile(hunterFile);
+    const searchContext = this.generateSearchContext(clientProfile, mode);
 
-  private async performSearch(userId: string, protocol: string, mode: string, recency: string): Promise<number> {
-    
-    // 1. Carica il Prompt "Cacciatore" specifico
-    let systemInstructionFile = 'system_headhunter_prompt.md';
-    if (mode === 'weekly') systemInstructionFile = 'system_headhunter_weekly.md';
-    if (mode === 'monthly') systemInstructionFile = 'system_headhunter_monthly.md';
-    
-    let systemBehavior = this.loadTextFile(systemInstructionFile);
-    if (!systemBehavior) systemBehavior = "You are an expert headhunter finding verified remote jobs.";
-
-    // 2. Carica le Fonti (o usa Fallback Premium)
-    const sourcesJson = this.loadTextFile('sources_masterlist.json');
-    let validSources = `
-      - WeWorkRemotely
-      - RemoteOK
-      - LinkedIn Jobs (Filter: Remote)
-      - Wellfound (AngelList)
-      - WorkingNomads
-      - Y Combinator Jobs
-    `; // Fallback robusto
-
+    let rawResults = [];
     try {
-        const sourcesObj = JSON.parse(sourcesJson);
-        if (sourcesObj.global_remote_platforms) {
-            // Prende i primi 15 siti globali
-            validSources = sourcesObj.global_remote_platforms.map((s:any) => s.name).slice(0, 15).join("\n- ");
+        console.log("🔍 [PHASE 1] Hunter Searching via Perplexity...");
+        const response = await axios.post(
+            'https://api.perplexity.ai/chat/completions',
+            {
+                model: 'sonar-pro', 
+                messages: [
+                    { role: 'system', content: hunterSystemPrompt },
+                    { role: 'user', content: searchContext }
+                ],
+                temperature: 0.3, // Un po' di creatività per trovare più risultati
+                max_tokens: 4000
+            },
+            { headers: { 'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}` } }
+        );
+        
+        // Pulizia JSON aggressiva
+        const cleanJson = response.data.choices[0].message.content
+            .replace(/```json/g, '')
+            .replace(/```/g, '')
+            .trim();
+            
+        // Estrae solo l'array se c'è testo attorno
+        const arrayMatch = cleanJson.match(/\[.*\]/s);
+        const jsonToParse = arrayMatch ? arrayMatch[0] : cleanJson;
+
+        rawResults = JSON.parse(jsonToParse);
+        console.log(`📥 [PHASE 1] Trovati ${rawResults.length} risultati grezzi.`);
+
+    } catch (e: any) {
+        console.error("❌ Errore Hunter (Perplexity):", e.message);
+        return 0;
+    }
+
+    if (!rawResults || rawResults.length === 0) {
+        console.warn("⚠️ Nessun risultato grezzo trovato. Caccia abortita.");
+        return 0;
+    }
+
+    // --- FASE 2: THE AUDITOR (GPT-4o / Guardrail) ---
+    // Obiettivo: Filtrare con Blacklist e Sniper Protocol.
+
+    // Selezione Prompt Reviewer
+    let reviewerFile = 'system_headhunter_daily_reviewer.md'; // Daily (se non esiste usa weekly come fallback o crea file vuoto)
+    if (mode === 'weekly') reviewerFile = 'system_headhunter_weekly_reviewer.md';
+    if (mode === 'monthly') reviewerFile = 'system_headhunter_monthly_reviewer.md';
+
+    let reviewerSystemPrompt = this.loadTextFile(reviewerFile);
+    
+    // Se manca il reviewer giornaliero, usiamo il protocollo manuale come istruzione
+    if (!reviewerSystemPrompt && mode === 'daily') {
+        const sniperProtocol = this.loadTextFile('manual_a_sniper_protocol.md');
+        reviewerSystemPrompt = `You are the Daily Auditor. Use these rules to filter jobs:\n${sniperProtocol}\nOutput strictly JSON Array of approved jobs.`;
+    }
+
+    const blacklist = this.loadTextFile('global_blacklist.json');
+
+    let approvedMissions = [];
+    try {
+        console.log("🛡️ [PHASE 2] Guardrail Auditing via GPT-4o...");
+        
+        const reviewResponse = await this.openai.chat.completions.create({
+            model: "gpt-4o", 
+            messages: [
+                { role: "system", content: reviewerSystemPrompt || "Filter these jobs. Remove scams. Return JSON." },
+                { role: "user", content: `
+                    GLOBAL BLACKLIST: ${blacklist}
+                    
+                    RAW LEADS TO AUDIT: 
+                    ${JSON.stringify(rawResults)}
+                    
+                    TASK: Return ONLY the valid jobs as a JSON Array.
+                `}
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0 // Zero creatività, pura logica di filtro
+        });
+
+        const reviewedData = JSON.parse(reviewResponse.choices[0].message.content || "{}");
+        
+        // Supporta sia formato { approved_missions: [] } che array diretto []
+        if (Array.isArray(reviewedData)) {
+            approvedMissions = reviewedData;
+        } else if (reviewedData.approved_missions && Array.isArray(reviewedData.approved_missions)) {
+            approvedMissions = reviewedData.approved_missions;
+        } else if (reviewedData.jobs && Array.isArray(reviewedData.jobs)) {
+            approvedMissions = reviewedData.jobs;
+        } else {
+            // Fallback estremo: se il formato è strano, prendiamo tutto quello che sembra un array
+            approvedMissions = Object.values(reviewedData).find(val => Array.isArray(val)) as any[] || [];
         }
-    } catch(e) {}
 
-    // 3. Costruzione Query
-    const searchContext = `
-      ${protocol}
+        console.log(`✅ [PHASE 2] Approvate ${approvedMissions.length} missioni su ${rawResults.length}.`);
 
-      --- 🔎 SEARCH PARAMETERS ---
-      TIMEFRAME: Posted in the last ${recency.toUpperCase()}.
-      LOCATION: Remote (Global/Europe/US).
-      
-      📍 PRIORITY SOURCES:
-      ${validSources}
-
-      🎯 MISSION:
-      Find 5 HIGH-QUALITY active job listings.
-      
-      ⚠️ EXECUTION RULES:
-      1. **NO 0€ JOBS:** If salary is hidden, YOU MUST ESTIMATE IT based on market rates (e.g. "$60k/yr (Est)"). Do not put 0.
-      2. **NO GENERIC AGENCIES:** Filter out low-quality staffing agencies (Manpower, Adecco) unless it's a specific high-tech role.
-      3. **VALID LINKS ONLY:** Must be a direct application link.
-
-      OUTPUT FORMAT (JSON ARRAY):
-      [{ "title": "...", "company_name": "...", "platform": "...", "hourly_rate": "50", "difficulty": "Medium", "action_link": "URL", "why_it_works": "..." }]
-    `;
-
-    console.log(`🔍 [QUERY] Richiesta a Perplexity...`);
-    
-    try {
-      const response = await axios.post(
-        'https://api.perplexity.ai/chat/completions',
-        {
-          model: 'sonar-pro', 
-          messages: [
-            { role: 'system', content: systemBehavior },
-            { role: 'user', content: searchContext }
-          ],
-          temperature: 0.2, // Bassa creatività per evitare allucinazioni
-          max_tokens: 4000
-        },
-        { headers: { 'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}` } }
-      );
-
-      const rawContent = response.data.choices[0].message.content;
-      return await this.processAndSaveOpportunities(rawContent, userId, mode as any);
-
-    } catch (error: any) {
-      console.error("❌ Errore API Perplexity:", error.message);
-      return 0;
+    } catch (e: any) {
+        console.error("❌ Errore Reviewer (Guardrail):", e.message);
+        // Fallback di emergenza: se il reviewer crasha, salva i primi 3 raw pur di non dare 0
+        console.warn("⚠️ Uso fallback raw results (Primi 3).");
+        approvedMissions = rawResults.slice(0, 3);
     }
+
+    // --- SALVATAGGIO ---
+    return await this.saveToDb(userId, approvedMissions, mode);
   }
 
-  private async processAndSaveOpportunities(rawContent: string, userId: string, type: 'daily' | 'weekly' | 'monthly'): Promise<number> {
-    let opportunities = [];
-    try {
-      // Pulizia aggressiva JSON
-      let cleanJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
-      const arrayMatch = cleanJson.match(/\[.*\]/s);
-      if (arrayMatch) cleanJson = arrayMatch[0];
-      
-      opportunities = JSON.parse(cleanJson);
-    } catch (e) {
-      console.error("⚠️ JSON Parsing Error. Raw content non valido.");
-      return 0;
-    }
-
-    if (!Array.isArray(opportunities)) return 0;
-
+  /**
+   * Salva le missioni nel DB, evitando duplicati
+   */
+  private async saveToDb(userId: string, opportunities: any[], type: string): Promise<number> {
     let savedCount = 0;
+    
     for (const opp of opportunities) {
-      // Filtro base link spazzatura
-      if (!opp.action_link || opp.action_link.length < 5 || opp.action_link.includes("manpower.it")) continue;
+        // Guardrail Finale: Validità Link minima
+        if (!opp.source_url || opp.source_url.length < 5 || !opp.source_url.includes('.')) continue;
 
-      const existing = await db.selectFrom('missions')
-        .select('id')
-        .where('user_id', '=', userId)
-        .where('source_url', '=', opp.action_link)
-        .executeTakeFirst();
+        const existing = await db.selectFrom('missions')
+            .select('id')
+            .where('user_id', '=', userId)
+            .where('source_url', '=', opp.source_url)
+            .executeTakeFirst();
 
-      if (!existing) {
-        // Parsing prezzo migliorato
-        let finalReward = this.parseReward(opp.hourly_rate || opp.reward);
-        if (finalReward === 0) finalReward = 25; // Default di sicurezza visivo (mai 0)
-
-        await db.insertInto('missions')
-          .values({
-            id: crypto.randomUUID(),
-            user_id: userId,
-            title: opp.title,
-            company_name: opp.company_name || opp.platform || "N/A",
-            description: `${opp.why_it_works || ''}\n\nRequisiti: ${opp.difficulty || 'N/A'}`,
-            source_url: opp.action_link,
-            reward_amount: finalReward,
-            estimated_duration_hours: 1, 
-            status: 'pending',
-            type: type,
-            platform: "AI Hunter",
-            match_score: 100,
-            created_at: new Date().toISOString() as any,
-            raw_data: JSON.stringify(opp)
-          })
-          .execute();
-        savedCount++;
-      }
+        if (!existing) {
+            await db.insertInto('missions')
+                .values({
+                    id: crypto.randomUUID(),
+                    user_id: userId,
+                    title: opp.title || "Missione Senza Titolo",
+                    company_name: opp.company_name || "N/A",
+                    // Combina snippet e reason del reviewer
+                    description: `${opp.reason || ''}\n\n${opp.snippet || opp.description || ''}`,
+                    source_url: opp.source_url,
+                    reward_amount: this.parseReward(opp.reward_amount || opp.hourly_rate || opp.salary_raw),
+                    estimated_duration_hours: opp.estimated_hours || 1, 
+                    status: 'pending',
+                    type: type as any,
+                    platform: opp.platform || "AI Hunter",
+                    match_score: opp.match_score || 85,
+                    created_at: new Date().toISOString() as any, // FIX DATA TYPE
+                    raw_data: JSON.stringify(opp)
+                })
+                .execute();
+            savedCount++;
+        }
     }
-    console.log(`✅ Salvate ${savedCount} nuove missioni.`);
     return savedCount;
   }
 
-  // --- PARSER PREZZI INTELLIGENTE ---
-  private parseReward(rewardStr: string): number {
-    if (!rewardStr) return 0;
-    
-    // Normalizza
-    const str = rewardStr.toString().toLowerCase().replace(/,/g, '').replace(/\./g, ''); 
-    
-    // 1. Gestione Annuale ("80k/yr", "100,000")
-    if (str.includes('k') || str.includes('yr') || str.includes('year')) {
-        const matches = str.match(/(\d+)/);
-        if (matches) {
-            let val = parseInt(matches[0], 10);
-            if (val < 1000) val *= 1000; // se è "80", diventa "80000"
-            return Math.floor(val / 2000); // Annuale -> Orario (circa)
-        }
-    }
+  /**
+   * Parser Prezzi Intelligente
+   * Converte "80k/yr", "$50/hr", "2000 month" in un numero intero (tariffa oraria stimata)
+   */
+  private parseReward(val: any): number {
+      if (typeof val === 'number') return val;
+      if (!val) return 0;
+      
+      const str = val.toString().toLowerCase().replace(/,/g, '').replace(/\./g, '');
+      
+      // 1. Gestione Annuale ("80k", "100000")
+      if (str.includes('k') || str.includes('yr') || str.includes('year') || str.includes('annum')) {
+          const matches = str.match(/(\d+)/);
+          if (matches) {
+              let num = parseInt(matches[0], 10);
+              if (num < 1000) num *= 1000; // 80 -> 80000
+              return Math.floor(num / 2000); // Stima oraria (2000 ore lavorative)
+          }
+      }
 
-    // 2. Gestione Oraria standard ("50", "$50/hr")
-    const matches = str.match(/(\d+)/);
-    return matches ? parseInt(matches[0], 10) : 0;
+      // 2. Gestione Mensile
+      if (str.includes('mo') || str.includes('month')) {
+          const matches = str.match(/(\d+)/);
+          if (matches) {
+              let num = parseInt(matches[0], 10);
+              return Math.floor(num / 160); // Stima oraria (160 ore mese)
+          }
+      }
+
+      // 3. Gestione Oraria Diretta
+      const matches = str.match(/(\d+)/);
+      return matches ? parseInt(matches[0], 10) : 0;
   }
 }
