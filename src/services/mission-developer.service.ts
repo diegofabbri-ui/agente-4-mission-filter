@@ -3,48 +3,40 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import path from 'path';
 import { db } from '../infra/db';
+import { RagService } from './rag.service';
 
 // ==================================================================================
-// ⚙️ CONFIGURAZIONE MODELLI AI
+// ⚙️ CONFIGURAZIONE MODELLI (HYPER-INTELLIGENCE)
 // ==================================================================================
 const AI_CONFIG = {
   openai: {
-    model: 'gpt-5.1-chat-latest', // Modello "Reasoning" (o1-preview/mini). Richiede temperature=1.
+    model: 'gpt-5.1-chat-latest', // Modello Reasoning.
   },
   gemini: {
-    model: 'gemini-2.5-pro',
+    model: 'gemini-2.5-pro', // Modello Judge ad alta capacità di contesto
     generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 16384
+      temperature: 0.0, // Zero creatività, pura logica di classificazione
+      maxOutputTokens: 8192
     }
   },
   system: {
-    max_loops: 3,
+    max_loops: 3, // Limite tentativi di autocorrezione
   }
 };
-
-export interface FinalMissionPackage {
-  deliverable_content: string;
-  strategy_brief: string;
-  execution_steps: string[];
-  estimated_impact: string;
-  bonus_material_title: string;
-  bonus_material_content: string;
-  is_immediate_task: boolean;
-  bonus_file_name: string;
-}
 
 export class MissionDeveloperService {
   private openai: OpenAI;
   private geminiClient: GoogleGenerativeAI;
   private geminiModel: any;
   private kbPath: string;
+  private ragService: RagService;
 
   constructor() {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    this.ragService = new RagService();
     
     const geminiKey = process.env.GEMINI_API_KEY || '';
-    if (!geminiKey) console.warn("⚠️ GEMINI_API_KEY mancante! Audit QA disabilitato.");
+    if (!geminiKey) console.warn("⚠️ GEMINI_API_KEY mancante! Guardrail disabilitato.");
     
     this.geminiClient = new GoogleGenerativeAI(geminiKey);
     this.geminiModel = this.geminiClient.getGenerativeModel({ 
@@ -59,368 +51,314 @@ export class MissionDeveloperService {
   }
 
   // --- HELPER: CARICAMENTO PROMPT ---
-  private loadPrompt(filename: string): string {
+  private loadSystemPrompt(filename: string, subfolder: string = ''): string {
     try {
-      let filePath = path.join(this.kbPath, filename);
-      if (!fs.existsSync(filePath)) filePath = path.join(this.kbPath, 'developer', filename);
-      if (!fs.existsSync(filePath)) filePath = path.join(process.cwd(), 'src', 'knowledge_base', filename);
-      return fs.readFileSync(filePath, 'utf-8');
+      const pathsToTry = [
+        path.join(this.kbPath, subfolder, filename),
+        path.join(this.kbPath, 'developer', filename),
+        path.join(this.kbPath, 'guardrails', filename),
+        path.join(this.kbPath, filename)
+      ];
+
+      for (const p of pathsToTry) {
+        if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8');
+      }
+      return "";
     } catch (e) {
       console.warn(`⚠️ Prompt mancante: ${filename}`);
       return "";
     }
   }
 
-  // --- HELPER: SOSTITUZIONE TAG GLOBALE ---
+  // --- HELPER: SOSTITUZIONE TAG ---
   private replaceTags(template: string, data: Record<string, string>): string {
       let result = template;
       for (const [key, value] of Object.entries(data)) {
-          // Replace globale di tutte le occorrenze
           result = result.split(key).join(value || "N/A");
       }
       return result;
   }
 
-  // ==================================================================================
-  // 1️⃣ FASE STRATEGICA: SVILUPPO CONTEXT-AWARE (LAYOUT 2)
-  // ==================================================================================
-  public async developStrategy(missionId: string): Promise<FinalMissionPackage> {
-    console.log(`\n⚙️ [DEV] Sviluppo Strategia Completa: ${missionId}`);
-    
-    // 1. Recupero Dati
-    const mission = await db.selectFrom('missions').selectAll().where('id', '=', missionId).executeTakeFirst();
-    if (!mission) throw new Error("Missione non trovata");
+  /**
+   * ==================================================================================
+   * 🎮 MAIN CONTROLLER: GENESI O ESECUZIONE
+   * Gestisce il bivio tra inizializzazione (Layout 2) e chat (Layout 3).
+   * ==================================================================================
+   */
+  public async generateExecResponse(missionId: string, userMessage: string): Promise<string> {
+    console.log(`\n🤖 [ORCHESTRATOR] Analisi richiesta per Missione: ${missionId}`);
 
-    let profileData: any = {};
-    if (mission.user_id) {
-        const profile = await db.selectFrom('user_ai_profile').select('career_manifesto').where('user_id', '=', mission.user_id).executeTakeFirst();
-        profileData = profile?.career_manifesto || {};
-    }
-
-    const userSkills = JSON.stringify(profileData.keySkillsToAcquire || []);
-    const userAdvantages = JSON.stringify(profileData.unfairAdvantages || []);
-
-    // 2. Mappa Dati Completa (Context Payload)
-    const contextData = {
-        '[MISSION_TITLE]': mission.title,
-        '[MISSION_DESCRIPTION]': mission.description || "Nessuna descrizione fornita.",
-        '[MISSION_URL]': mission.source_url || "N/A",
-        '[MISSION_COMPANY]': mission.company_name || "Cliente Confidenziale",
-        '[USER_SKILLS]': userSkills,
-        '[USER_ADVANTAGES]': userAdvantages,
-        '[PLATFORM]': mission.platform || "Web"
-    };
-
-    // 3. Routing Prompt
-    let candFile = 'prompt_1_gpt_developer_init.md'; 
-    let bonusFile = 'prompt_10_bonus_material_init.md'; 
-
-    if (mission.type === 'weekly') {
-        candFile = 'prompt_1_weekly_candidacy.md';
-        bonusFile = 'prompt_10_weekly_bonus.md';
-    } else if (mission.type === 'monthly') {
-        candFile = 'prompt_1_monthly_candidacy.md';
-        bonusFile = 'prompt_10_monthly_bonus.md';
-    }
-
-    // A. Generazione Candidatura
-    let rawPromptCand = this.loadPrompt(candFile) || "Generate professional proposal.";
-    const finalPromptCand = this.replaceTags(rawPromptCand, contextData);
-    const approvedCandidacy = await this.simpleGptCall(finalPromptCand);
-
-    // B. Generazione Bonus Asset
-    let rawPromptBonus = this.loadPrompt(bonusFile) || "Generate strategic bonus asset.";
-    const finalPromptBonus = this.replaceTags(rawPromptBonus, contextData);
-    const approvedBonus = await this.simpleGptCall(finalPromptBonus);
-
-    // C. Packaging
-    const finalPackage = await this.gptPackageWithRetry(approvedCandidacy, approvedBonus, contextData);
-    
-    // D. Salvataggio
-    await db.updateTable('missions')
-      .set({
-        status: 'developed', 
-        final_deliverable_json: JSON.stringify(finalPackage), 
-        analysis_notes: finalPackage.strategy_brief
-      })
-      .where('id', '=', missionId)
-      .execute();
-
-    return finalPackage;
-  }
-
-  // ==================================================================================
-  // 2️⃣ ESECUZIONE CHAT (AGENTE AUTONOMO - LAYOUT 3)
-  // ==================================================================================
-  public async executeChatStep(missionId: string, userId: string, userInput: string, attachments: any[] = []): Promise<string> {
-      console.log(`\n💬 [EXEC] Chat Step: ${missionId}`);
-
-      // 1. Recupero dati missione
-      const mission = await db.selectFrom('missions')
-        .select(['id', 'title', 'description', 'final_deliverable_json', 'conversation_history', 'command_count', 'max_commands', 'type', 'raw_data', 'status'])
+    const mission = await db.selectFrom('missions')
+        .selectAll()
         .where('id', '=', missionId)
         .executeTakeFirst();
 
-      if (!mission) throw new Error("Missione non trovata.");
+    if (!mission) throw new Error("Missione non trovata.");
 
-      const currentStep = mission.command_count || 0;
-      
-      // 2. Controllo Stato Completamento
-      if (mission.status === 'completed') {
-          return "🔒 Missione Archiviata. La memoria è stata resettata. Avvia una nuova missione.";
-      }
-
-      // 3. Gestione Allegati nell'Input
-      let inputWithAttachments = userInput;
-      let attachmentsListStr = "Nessuno";
-      if (attachments && attachments.length > 0) {
-          inputWithAttachments += `\n\n--- [SYSTEM: USER ATTACHMENTS] ---\n`;
-          attachmentsListStr = attachments.map(f => f.name).join(", ");
-          attachments.forEach((file, idx) => {
-              const contentPreview = file.content.length > 50000 ? file.content.substring(0, 50000) + "... [TRUNCATED]" : file.content;
-              inputWithAttachments += `FILE ${idx+1} (${file.name}):\n${contentPreview}\n----------------\n`;
-          });
-      }
-
-      // 4. LOGICA BIFORCATA: ARCHITETTO vs OPERAIO
-      let finalResponse = "";
-      let updatedRawData = typeof mission.raw_data === 'string' ? JSON.parse(mission.raw_data) : (mission.raw_data || {});
-
-      // --- CASO A: PRIMO STEP (ORCHESTRAZIONE) ---
-      if (currentStep === 0) {
-          console.log("🏗️ [AGENTE] Generazione Piano di Orchestrazione...");
-          
-          // >>> START MODIFICA: RECUPERO STRATEGIA APPROVATA <<<
-          let approvedStrategyContext = "Nessuna strategia specifica pregressa. Basati sulla richiesta utente.";
-          
-          if (mission.final_deliverable_json) {
-             const strat = typeof mission.final_deliverable_json === 'string' 
-                ? JSON.parse(mission.final_deliverable_json) 
-                : mission.final_deliverable_json;
-             
-             // Costruiamo il contesto strategico da passare all'Agente
-             approvedStrategyContext = `
-             **STRATEGY BRIEF:** ${strat.strategy_brief || 'N/A'}
-             
-             **CANDIDACY / COVER LETTER (WHAT WE PROMISED):**
-             ${strat.deliverable_content || 'N/A'}
-             
-             **BONUS ASSET (TECHNICAL BASELINE):**
-             ${strat.bonus_material_content || 'N/A'}
-             `;
-          }
-          // >>> END MODIFICA <<<
-
-          let orchestratorPrompt = this.loadPrompt('prompt_orchestrator.md');
-          orchestratorPrompt = orchestratorPrompt
-              .replace('{{USER_INPUT}}', userInput)
-              .replace('{{ATTACHMENTS_LIST}}', attachmentsListStr)
-              // Iniettiamo la strategia nel prompt
-              .replace('{{APPROVED_STRATEGY}}', approvedStrategyContext); 
-
-          finalResponse = await this.simpleGptCall(orchestratorPrompt);
-          
-          // SALVIAMO IL PIANO NELLA "MEMORIA A LUNGO TERMINE"
-          updatedRawData.orchestration_plan = finalResponse;
-          console.log("📄 [DEBUG] PIANO SALVATO:\n", finalResponse);
-      } 
-      
-      // --- CASO B: STEP SUCCESSIVI (ESECUZIONE WORKER) ---
-      else {
-          console.log(`🔨 [AGENTE] Esecuzione Step ${currentStep + 1}...`);
-          
-          const masterPlan = updatedRawData.orchestration_plan || "⚠️ NESSUN PIANO TROVATO. Procedi con best practice.";
-          
-          let workerPrompt = this.loadPrompt('prompt_worker.md');
-          workerPrompt = workerPrompt
-              .replace('{{ORCHESTRATION_PLAN}}', masterPlan)
-              .replace('{{USER_INPUT}}', userInput);
-
-          let history: any[] = [];
-          if (typeof mission.conversation_history === 'string') {
-              history = JSON.parse(mission.conversation_history);
-          } else if (Array.isArray(mission.conversation_history)) {
-              history = mission.conversation_history;
-          }
-
-          finalResponse = await this.runExecutionLoop(workerPrompt, history.slice(-15), inputWithAttachments);
-      }
-
-      // 5. AGGIORNAMENTO MEMORIA E DB
-      let history: any[] = [];
-      if (typeof mission.conversation_history === 'string') {
-          history = JSON.parse(mission.conversation_history);
-      } else if (Array.isArray(mission.conversation_history)) {
-          history = mission.conversation_history;
-      }
-
-      const newMessageUser = { role: "user", content: inputWithAttachments, timestamp: new Date() };
-      const newMessageAI = { role: "assistant", content: finalResponse, timestamp: new Date() };
-      
-      const updatedHistory = [...history, newMessageUser, newMessageAI];
-
-      await db.updateTable('missions')
-        .set({
-            conversation_history: JSON.stringify(updatedHistory),
-            raw_data: JSON.stringify(updatedRawData),
-            final_work_content: finalResponse,
-            command_count: currentStep + 1,
-            status: 'active' 
-        })
-        .where('id', '=', missionId)
-        .execute();
-
-      return finalResponse;
-  }
-
-  // ==================================================================================
-  // 3️⃣ METODI DI CHIUSURA MISSIONE
-  // ==================================================================================
-  public async completeMission(missionId: string): Promise<void> {
-      console.log(`🏁 [MISSION] Completamento e Pulizia: ${missionId}`);
-      await db.updateTable('missions')
-          .set({
-              status: 'completed',
-              conversation_history: JSON.stringify([]), // 🗑️ PULIZIA MEMORIA
-          })
-          .where('id', '=', missionId)
-          .execute();
-  }
-
-  // ==================================================================================
-  // UTILS: IL LOOP DI ESECUZIONE & AUDIT (GPT <-> GEMINI)
-  // ==================================================================================
-  private async runExecutionLoop(systemPrompt: string, history: any[], userInput: string): Promise<string> {
-      let currentDraft = "";
-      let loopCount = 0;
-      let approved = false;
-      let critiqueLog = [];
-
-      const auditorMetrics = this.loadPrompt('prompt_2_gemini_auditor_metrics.md');
-      const auditorSchema = this.loadPrompt('prompt_3_gemini_auditor_output.json');
-      const fixerPromptTemplate = this.loadPrompt('prompt_5_gpt_fixer_loop.md');
-
-      const messagesForGPT = [
-          { role: "system", content: systemPrompt },
-          ...history.map(h => ({ role: h.role, content: h.content })), 
-          { role: "user", content: userInput }
-      ];
-
-      console.log(`🔄 [LOOP] Avvio ciclo di perfezionamento (Max: ${AI_CONFIG.system.max_loops})...`);
-
-      while (loopCount < AI_CONFIG.system.max_loops && !approved) {
-          loopCount++;
-          console.log(`   ► Iterazione ${loopCount}/${AI_CONFIG.system.max_loops}`);
-
-          // 1. GPT GENERA
-          try {
-              const res = await this.openai.chat.completions.create({
-                  model: AI_CONFIG.openai.model, 
-                  messages: messagesForGPT as any,
-                  // ⚠️ FIX CRITICO: Rimosso 'temperature' per compatibilità con modelli o1/gpt-5.1
-              });
-              currentDraft = res.choices[0].message.content || "";
-          } catch (e: any) {
-              console.error(`❌ GPT Error:`, e.message);
-              return "Errore tecnico generazione. Controllare i log.";
-          }
-
-          if (currentDraft.length < 50 || loopCount >= AI_CONFIG.system.max_loops) {
-              approved = true;
-              break;
-          }
-
-          // 2. GEMINI AUDITA
-          try {
-              const auditPromptFull = `
-              ${auditorMetrics}
-              ---
-              **INPUT CONTEXT:** "${userInput.substring(0, 1000)}..."
-              **EXECUTOR DRAFT:** \`\`\`${currentDraft.substring(0, 15000)}\`\`\`
-              **OUTPUT SCHEMA:** ${auditorSchema}
-              `;
-
-              const auditRes = await this.geminiModel.generateContent(auditPromptFull);
-              const auditJson = this.safeJsonParse(auditRes.response.text());
-
-              if (auditJson && auditJson.status === "PASS") {
-                  console.log("✅ [GEMINI] Draft Approvato!");
-                  approved = true;
-              } else if (auditJson) {
-                  console.log("❌ [GEMINI] Rifiutato. Critiche:", JSON.stringify(auditJson.critique).substring(0, 100));
-                  
-                  let fixerPrompt = fixerPromptTemplate
-                      .replace('[ITERATION_NUMBER]', loopCount.toString())
-                      .replace('[PREVIOUS_DRAFT]', "Vedi bozza precedente")
-                      .replace('[GEMINI_CRITIQUE]', JSON.stringify(auditJson.critique));
-
-                  messagesForGPT.push({ role: "assistant", content: currentDraft });
-                  messagesForGPT.push({ role: "system", content: fixerPrompt });
-                  
-                  critiqueLog.push(auditJson.critique);
-              } else {
-                  approved = true;
-              }
-          } catch (e) { 
-              console.error("⚠️ Errore critico Loop Audit:", e);
-              approved = true; 
-          }
-      }
-
-      return currentDraft;
-  }
-
-  private async simpleGptCall(prompt: string): Promise<string> {
-      try {
-          const res = await this.openai.chat.completions.create({
-              model: AI_CONFIG.openai.model,
-              messages: [{ role: "system", content: prompt }]
-              // ⚠️ FIX: No temperature qui
-          });
-          return res.choices[0].message.content || "";
-      } catch (e: any) { 
-          console.error("GPT Error:", e.message);
-          return ""; 
-      }
-  }
-
-  private async gptPackageWithRetry(candidacy: string, bonus: string, contextData: any): Promise<FinalMissionPackage> {
-    const templatePackage = this.loadPrompt('prompt_4_frontend_package.md') || "Package JSON.";
-    let finalPrompt = this.replaceTags(templatePackage, contextData);
-    
-    finalPrompt = finalPrompt
-        .replace('[APPROVED_CANDIDACY]', candidacy)
-        .replace('[APPROVED_BONUS]', bonus);
-    
-    try {
-       const res = await this.openai.chat.completions.create({ 
-           model: AI_CONFIG.openai.model, 
-           messages: [{ role: "system", content: finalPrompt }],
-           response_format: { type: "json_object" }
-           // ⚠️ FIX: No temperature qui
-       });
-       return JSON.parse(res.choices[0].message.content || "{}");
-    } catch(e) {
-        return { 
-            deliverable_content: candidacy || "Errore Candidatura", 
-            bonus_material_title: "Strategic Asset", 
-            bonus_material_content: bonus || "Errore Bonus", 
-            strategy_brief: "Strategia pronta.", 
-            execution_steps: ["1. Copia candidatura", "2. Allega bonus", "3. Invia"], 
-            estimated_impact: "Alto", 
-            is_immediate_task: true, 
-            bonus_file_name: "Asset.pdf" 
-        };
+    // SE MANCANO GLI ASSET FONDAMENTALI -> FASE GENESI
+    // (Cioè: non abbiamo ancora generato il piano strategico o la candidatura)
+    if (!mission.analysis_notes || !mission.final_work_content) {
+        return await this.runGenesisSequence(mission, userMessage);
+    } else {
+        // ALTRIMENTI -> FASE ESECUZIONE CON GUARDRAIL (A3->A / B3->B)
+        return await this.runExecutionLoop(mission, userMessage);
     }
   }
 
-  private safeJsonParse(text: string): any {
+  /**
+   * ==================================================================================
+   * 🌱 FASE 1: GENESI (Creazione Asset & Piano Markdown)
+   * Viene eseguita UNA volta alla prima richiesta specifica dell'utente.
+   * ==================================================================================
+   */
+  private async runGenesisSequence(mission: any, specificRequest: string): Promise<string> {
+    console.log("🚀 AVVIO SEQUENZA GENESI...");
+
+    // 1. Recupero dati profilo
+    let profileData: any = {};
+    if (mission.user_id) {
+        const p = await db.selectFrom('user_ai_profile').select('career_manifesto').where('user_id', '=', mission.user_id).executeTakeFirst();
+        profileData = p?.career_manifesto || {};
+    }
+
+    const contextData = {
+        '[MISSION_TITLE]': mission.title,
+        '[MISSION_DESCRIPTION]': mission.description || "N/A",
+        '[USER_REQUEST]': specificRequest,
+        '[USER_SKILLS]': JSON.stringify(profileData.keySkillsToAcquire || []),
+        '[PLATFORM]': mission.platform || "Web"
+    };
+
+    // 2. GENERAZIONE CANDIDATURA (GPT-5.1)
+    console.log("... Generazione Candidatura");
+    const candFile = mission.type === 'monthly' ? 'prompt_1_monthly_candidacy.md' : 'prompt_1_weekly_candidacy.md';
+    let rawPromptCand = this.loadSystemPrompt(candFile, 'developer') || "Generate pitch.";
+    const finalPromptCand = this.replaceTags(rawPromptCand, contextData);
+    const candidacy = await this.simpleGptCall(finalPromptCand, `CONTEXT: ${JSON.stringify(mission)}\nGOAL: ${specificRequest}`);
+
+    // 3. GENERAZIONE MATERIALE BONUS (GPT-5.1)
+    console.log("... Generazione Materiale Bonus");
+    let rawPromptBonus = this.loadSystemPrompt('prompt_10_bonus_material_init.md', 'developer');
+    const finalPromptBonus = this.replaceTags(rawPromptBonus, contextData);
+    const bonusJsonRaw = await this.simpleGptCall(finalPromptBonus, "Create high-value JSON deliverable.");
+    
+    // 4. GENERAZIONE PIANO STRATEGICO (Markdown)
+    // Questo è il "Piano di Lavoro" derivato dal primo comando
+    console.log("... Generazione Piano Strategico (Markdown)");
+    const orchestratorPrompt = this.loadSystemPrompt('prompt_orchestrator.md', 'developer');
+    const strategicPlan = await this.simpleGptCall(
+        orchestratorPrompt,
+        `ANALYZE MISSION: ${mission.description}\nUSER REQUEST: ${specificRequest}\n\nTASK: Create a strict Step-by-Step Execution Plan in Markdown.`
+    );
+
+    // 5. SALVATAGGIO ASSET E PASSAGGIO DI STATO
+    await db.updateTable('missions')
+        .set({
+            final_work_content: candidacy,
+            final_deliverable_json: bonusJsonRaw, 
+            analysis_notes: strategicPlan, // La "Timeline Sacra"
+            last_user_request: specificRequest,
+            last_agent_response: strategicPlan,
+            conversation_history: JSON.stringify([
+                { role: 'user', content: specificRequest },
+                { role: 'assistant', content: strategicPlan }
+            ]),
+            status: 'active',
+            updated_at: new Date()
+        })
+        .where('id', '=', mission.id)
+        .execute();
+
+    return `✅ **MISSIONE INIZIALIZZATA**
+    
+Ho elaborato la tua richiesta iniziale e preparato gli asset operativi:
+
+1.  **Candidatura:** Pronta per l'invio.
+2.  **Materiale Bonus:** Generato.
+3.  **Piano Strategico:** Definita la roadmap.
+
+Ecco il **Piano di Lavoro** che seguiremo:\n\n${strategicPlan}`;
+  }
+
+  /**
+   * ==================================================================================
+   * ⚔️ FASE 2: ESECUZIONE CON GUARDRAIL VETTORIALE (A3->A e B3->B)
+   * Gestisce il loop chat quotidiano assicurando aderenza al piano e qualità.
+   * ==================================================================================
+   */
+  private async runExecutionLoop(mission: any, userMessage: string): Promise<string> {
+    console.log("🔄 AVVIO LOOP ESECUZIONE (Dual Guardrail A/B)...");
+
+    // 1. RAG: Recupero Contesto Vettoriale (Esempi, Guide A1-A3, B1-B3)
+    const ragContext = await this.ragService.retrieveContext(userMessage);
+
+    // 2. COSTRUZIONE DEL "QUADRATO TATTICO" (Il Contesto Totale)
+    // Include tutto lo storico per garantire coerenza
+    const contextPacket = `
+    === 🧭 MISSION COMPASS ===
+    TITLE: ${mission.title}
+    INITIAL REQUEST: ${mission.description}
+    SPECIFIC USER GOAL (Origin): ${mission.last_user_request}
+    
+    === 🗺️ THE MAP (Approved Assets) ===
+    CANDIDACY: ${mission.final_work_content}
+    BONUS: ${mission.final_deliverable_json}
+    STRATEGIC PLAN (The Roadmap): ${mission.analysis_notes}
+    
+    === 🧠 MEMORY STREAM ===
+    LAST AGENT MSG: ${mission.last_agent_response}
+    CURRENT INPUT: "${userMessage}"
+    
+    === 📚 RAG EXAMPLES ===
+    ${ragContext}
+    `;
+
+    // 3. Prompt Worker (GPT-5.1)
+    // Usa un prompt specifico per l'esecuzione del lavoro
+    const workerPrompt = this.loadSystemPrompt('prompt_9_work_execution.md', 'developer') || 
+                         this.loadSystemPrompt('prompt_worker.md', 'developer');
+
+    console.log("📝 Worker generating draft...");
+    let draft = await this.simpleGptCall(workerPrompt, contextPacket);
+    
+    // 4. GUARDRAIL LOOP (GPT Genera -> Gemini Giudica -> GPT Corregge)
+    let loops = 0;
+    let approved = false;
+
+    while (!approved && loops < AI_CONFIG.system.max_loops) {
+        console.log(`🛡️ Guardrail Check #${loops + 1}...`);
+        
+        // GEMINI GIUDICA (Zona A/B o A3/B3)
+        const evaluation = await this.geminiJudge(contextPacket, draft);
+        console.log(`📊 Vector Assessment: Zone ${evaluation.zone} (Score: ${evaluation.score})`);
+        
+        // LOGICA VETTORIALE
+        // Zone A/B = Successo (Centro del bersaglio)
+        if (evaluation.zone === 'A' || evaluation.zone === 'B') {
+            approved = true;
+            console.log(`✅ Approved.`);
+        } else {
+            // Zone A3/A2/A1 o B3/B2/B1 = Deviazione
+            // Dobbiamo spostarci diagonalmente verso il centro
+            console.warn(`⚠️ Deviation Detected: ${evaluation.zone}. Applying Diagonal Correction.`);
+            
+            let targetInstruction = "";
+            if (evaluation.zone.startsWith('A')) {
+                // Errore di Esecuzione (A3 -> A)
+                targetInstruction = "Focus on EXECUTION ACCURACY. Adhere strictly to the Work Plan steps.";
+            } else {
+                // Errore di Strategia (B3 -> B)
+                targetInstruction = "Focus on STRATEGIC ALIGNMENT. Ensure the tone and goal match the Mission Compass.";
+            }
+
+            const fixerPrompt = this.loadSystemPrompt('prompt_5_gpt_fixer_loop.md', 'developer');
+            const correctionInput = `
+            ORIGINAL DRAFT: ${draft}
+            SUPERVISOR CRITIQUE (${evaluation.zone}): ${evaluation.feedback}
+            
+            ✅ VECTOR CORRECTION TASK:
+            Rewrite the response moving from Zone ${evaluation.zone} to Zone A/B.
+            ${targetInstruction}
+            Fix logic and tone immediately.
+            `;
+            
+            draft = await this.simpleGptCall(fixerPrompt || "You are a fixer. Correct the text.", correctionInput);
+            loops++;
+        }
+    }
+
+    // 5. AGGIORNAMENTO MEMORIA DB
+    // Gestione sicura della history JSON
+    let history = [];
     try {
-      let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      const start = clean.indexOf('{');
-      const end = clean.lastIndexOf('}');
-      if (start !== -1 && end !== -1) clean = clean.substring(start, end + 1);
-      return JSON.parse(clean);
-    } catch (e) { return null; }
+        history = typeof mission.conversation_history === 'string' 
+            ? JSON.parse(mission.conversation_history) 
+            : (mission.conversation_history || []);
+    } catch (e) { history = []; }
+
+    const newHistory = [
+        ...history, 
+        { role: 'user', content: userMessage, timestamp: new Date() },
+        { role: 'assistant', content: draft, timestamp: new Date() }
+    ];
+
+    await db.updateTable('missions')
+        .set({
+            last_user_request: userMessage,
+            last_agent_response: draft,
+            conversation_history: JSON.stringify(newHistory), // Salviamo tutto il thread
+            updated_at: new Date()
+        })
+        .where('id', '=', mission.id)
+        .execute();
+
+    return draft;
+  }
+
+  // ==================================================================================
+  // 🧠 MOTORI AI
+  // ==================================================================================
+
+  /**
+   * GPT-5.1 (Worker/Fixer): Genera il contenuto.
+   */
+  private async simpleGptCall(sysPrompt: string, userContext: string = ""): Promise<string> {
+    try {
+        const response = await this.openai.chat.completions.create({
+            model: AI_CONFIG.openai.model, // gpt-5.1-chat-latest
+            messages: [
+                { role: "system", content: sysPrompt },
+                { role: "user", content: userContext }
+            ]
+            // NOTA: Niente temperature per modelli O1/Reasoning
+        });
+        return response.choices[0].message.content || "";
+    } catch (e: any) {
+        console.error("GPT Error:", e.message);
+        return "Errore generazione risposta.";
+    }
+  }
+
+  /**
+   * Gemini 2.5 (Judge): Valuta la risposta sulle coordinate A/B.
+   */
+  private async geminiJudge(context: string, draft: string): Promise<{ zone: string, score: number, feedback: string }> {
+    // Carichiamo il prompt del Giudice (che definisce A3, A, B3, B)
+    const judgePromptMd = this.loadSystemPrompt('system_guardrail_judge.md', 'guardrails');
+    
+    if (!judgePromptMd) return { zone: "A", score: 100, feedback: "No judge prompt found." };
+
+    const fullPrompt = `
+    ${judgePromptMd}
+    
+    --- INPUT DATA TO EVALUATE ---
+    MISSION CONTEXT:
+    ${context}
+
+    DRAFT RESPONSE:
+    ${draft}
+    `;
+
+    try {
+        const result = await this.geminiModel.generateContent(fullPrompt);
+        const responseText = result.response.text();
+        
+        // Parsing JSON robusto per Gemini
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+                zone: parsed.zone || "B", // Default a B se manca
+                score: parsed.score || 50,
+                feedback: parsed.feedback || "Generic error"
+            };
+        }
+        console.warn("⚠️ Gemini Judge JSON parsing failed. Text:", responseText);
+        return { zone: "B", score: 70, feedback: "JSON parsing failed, passing with caution." };
+
+    } catch (e) {
+        console.error("Gemini Judge Error:", e);
+        return { zone: "A", score: 100, feedback: "Judge offline." }; // Fail open
+    }
   }
 }
