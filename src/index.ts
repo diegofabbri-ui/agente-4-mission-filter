@@ -1,46 +1,81 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import './infra/db';
-import { authRouter } from './routes/auth.routes';
 import { missionsRouter } from './routes/missions.routes';
+import { authRouter } from './routes/auth.routes';
 import { userRouter } from './routes/user.routes';
-import { authMiddleware } from './middleware/auth.middleware';
-import { startScheduler } from './cron/scheduler';
+import { initScheduler } from './cron/scheduler';
 
+// Carica variabili d'ambiente
 dotenv.config();
 
 const app = express();
-// Railway fornisce la porta tramite env, altrimenti 8080
-const port = parseInt(process.env.PORT || '8080', 10);
 
+// Porta dinamica (fondamentale per Aruba/Railway)
+const PORT = process.env.PORT || 8080;
+
+// Middleware di base
 app.use(cors());
 app.use(express.json());
 
-// Log delle richieste (utile per debug)
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
+/**
+ * 🛠 ROTTA DI HEALTH CHECK (FONDAMENTALE)
+ * Aruba e Railway inviano un "ping" qui per sapere se il server è vivo.
+ * Deve rispondere 200 OK immediatamente.
+ */
+app.get('/', (req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'online',
+    message: 'Agente 4 Mission Filter API è attivo e funzionante 🚀',
+    timestamp: new Date().toISOString()
+  });
 });
 
-// --- FIX RAILWAY: Rotta Base per Health Check ---
-// Railway pinga qui per sapere se l'app è viva. Se non rispondi 200, ti uccide.
-app.get('/', (req, res) => {
-  res.status(200).send('Agente 4 Backend Operativo 🚀');
-});
-
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date() });
-});
-
-// Rotte API
+/**
+ * 🛣 CONFIGURAZIONE ROTTE API
+ */
 app.use('/api/auth', authRouter);
-app.use('/api/missions', authMiddleware, missionsRouter);
-app.use('/api/user', authMiddleware, userRouter);
+app.use('/api/users', userRouter);
+app.use('/api/missions', missionsRouter);
 
-// Avvio Server con binding esplicito
-app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 Backend listening on port ${port} (0.0.0.0)`);
-  // Avvia lo scheduler solo dopo che il server è su
-  startScheduler();
+/**
+ * 🚨 GESTORE ERRORI GLOBALE
+ * Impedisce al server di chiudersi bruscamente in caso di eccezioni non gestite.
+ */
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error('❌ [SERVER ERROR]:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message || 'Errore imprevisto del server'
+  });
+});
+
+/**
+ * 🚀 AVVIO SERVER
+ */
+const startServer = () => {
+  try {
+    // Ascoltiamo su 0.0.0.0 per garantire l'accessibilità dall'esterno dell'host
+    app.listen(Number(PORT), '0.0.0.0', () => {
+      console.log(`\n*****************************************`);
+      console.log(`🚀 Agente 4 pronto sull'host Aruba`);
+      console.log(`📡 URL: http://0.0.0.0:${PORT}`);
+      console.log(`*****************************************\n`);
+
+      // Inizializza lo scheduler solo dopo che il server è su
+      initScheduler();
+      console.log('⏰ Scheduler Multi-Tenant inizializzato (Rome Time)');
+    });
+  } catch (error) {
+    console.error('🔥 Impossibile avviare il server:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+// Gestione segnali di chiusura pulita (SIGTERM/SIGINT)
+process.on('SIGTERM', () => {
+  console.log('👋 Ricevuto SIGTERM: chiusura del server in corso...');
+  process.exit(0);
 });
