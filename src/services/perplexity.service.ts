@@ -28,24 +28,27 @@ export class PerplexityService {
     } catch (e) { return ""; }
   }
 
+  // --- GENERAZIONE PROTOCOLLO DI RICERCA ---
   private generateUserProtocol(profile: any): string {
     if (!profile || !profile.dreamRole) return `TARGET: Remote Jobs`;
 
     const aiData = profile.generatedSearchLogic || {};
     
+    // Uniamo le keyword positive
     const posKeywords = Array.isArray(aiData.positive_keywords) && aiData.positive_keywords.length > 0
-        ? aiData.positive_keywords.join(", ") 
+        ? aiData.positive_keywords.join(" OR ") // Usa OR per ampliare la ricerca
         : (profile.whatToDo || profile.dreamRole);
 
+    // Uniamo le keyword negative
     const negKeywords = Array.isArray(aiData.negative_keywords) && aiData.negative_keywords.length > 0
         ? aiData.negative_keywords.join(", ") 
-        : (profile.whatToAvoid || "Scams");
+        : "Scams, MLM, Unpaid";
 
     return `
-    === USER TARGET ===
+    === USER AVATAR ===
     ROLE: "${profile.dreamRole}"
-    MUST INCLUDE: ${posKeywords}
-    MUST EXCLUDE: ${negKeywords}
+    QUERY BOOLEAN LOGIC: (${posKeywords}) 
+    STRICTLY EXCLUDE: ${negKeywords}
     USER NOTES: "${profile.advancedInstructions || "No extra rules"}"
     `;
   }
@@ -53,49 +56,64 @@ export class PerplexityService {
   public async findGrowthOpportunities(userId: string, clientProfile: any, mode: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<number> {
     console.log(`\n🚀 [PERPLEXITY] Avvio Caccia ${mode.toUpperCase()} per User: ${userId}`);
     const userProtocol = this.generateUserProtocol(clientProfile);
-    let recency = mode === 'weekly' ? 'week' : (mode === 'monthly' ? 'month' : 'day');
+    
+    // Mapping corretto della "recency" per Perplexity
+    let recency = 'day'; 
+    if (mode === 'weekly') recency = 'week';
+    if (mode === 'monthly') recency = 'month';
+
     return await this.performSearch(userId, userProtocol, mode, recency);
   }
 
   private async performSearch(userId: string, protocol: string, mode: string, recency: string): Promise<number> {
     
+    // 1. Carica il Prompt "Cacciatore" specifico
     let systemInstructionFile = 'system_headhunter_prompt.md';
     if (mode === 'weekly') systemInstructionFile = 'system_headhunter_weekly.md';
     if (mode === 'monthly') systemInstructionFile = 'system_headhunter_monthly.md';
     
     let systemBehavior = this.loadTextFile(systemInstructionFile);
-    if (!systemBehavior) systemBehavior = "You are an expert headhunter.";
+    if (!systemBehavior) systemBehavior = "You are an expert headhunter finding verified remote jobs.";
 
-    // --- FIX QUALITÀ: FONTI PREMIUM ---
-    // Invece di affidarci solo al file, forziamo le fonti migliori direttamente qui
-    const premiumSources = `
-      1. WeWorkRemotely (Tech & Marketing)
-      2. RemoteOK (Global Remote)
-      3. LinkedIn Jobs (Filter: Remote, Last 24h)
-      4. Otta.com (High quality tech)
-      5. Wellfound (Startups)
-      6. Upwork (Enterprise Clients Only)
-      7. WorkingNomads
-    `;
+    // 2. Carica le Fonti (o usa Fallback Premium)
+    const sourcesJson = this.loadTextFile('sources_masterlist.json');
+    let validSources = `
+      - WeWorkRemotely
+      - RemoteOK
+      - LinkedIn Jobs (Filter: Remote)
+      - Wellfound (AngelList)
+      - WorkingNomads
+      - Y Combinator Jobs
+    `; // Fallback robusto
 
+    try {
+        const sourcesObj = JSON.parse(sourcesJson);
+        if (sourcesObj.global_remote_platforms) {
+            // Prende i primi 15 siti globali
+            validSources = sourcesObj.global_remote_platforms.map((s:any) => s.name).slice(0, 15).join("\n- ");
+        }
+    } catch(e) {}
+
+    // 3. Costruzione Query
     const searchContext = `
       ${protocol}
 
-      --- 🛡️ SEARCH PARAMETERS ---
-      TIMEFRAME: Opportunities posted in the last ${recency === 'day' ? '24 HOURS' : '7 DAYS'}.
-      LOCATION: Remote (Worldwide or Europe/US based).
+      --- 🔎 SEARCH PARAMETERS ---
+      TIMEFRAME: Posted in the last ${recency.toUpperCase()}.
+      LOCATION: Remote (Global/Europe/US).
       
-      📍 PRIORITY SOURCES (Ignore local staffing agencies like Manpower/Adecco):
-      ${premiumSources}
+      📍 PRIORITY SOURCES:
+      ${validSources}
 
-      🎯 GOAL: Find 5 HIGH-PAYING, concrete job listings.
+      🎯 MISSION:
+      Find 5 HIGH-QUALITY active job listings.
       
-      ⚠️ CRITICAL RULES:
-      1. **NO 0€ JOBS**: If salary is not listed, ESTIMATE it based on market rates for the role (e.g., "Estimate: $40/hr"). Do not return 0 or "Negotiable".
-      2. **NO GENERIC AGENCIES**: Exclude listings from "Manpower", "Randstad", "Adecco" unless it's a specific high-level role.
-      3. **LINK CHECK**: Must be a direct application link.
+      ⚠️ EXECUTION RULES:
+      1. **NO 0€ JOBS:** If salary is hidden, YOU MUST ESTIMATE IT based on market rates (e.g. "$60k/yr (Est)"). Do not put 0.
+      2. **NO GENERIC AGENCIES:** Filter out low-quality staffing agencies (Manpower, Adecco) unless it's a specific high-tech role.
+      3. **VALID LINKS ONLY:** Must be a direct application link.
 
-      OUTPUT FORMAT (JSON Array):
+      OUTPUT FORMAT (JSON ARRAY):
       [{ "title": "...", "company_name": "...", "platform": "...", "hourly_rate": "50", "difficulty": "Medium", "action_link": "URL", "why_it_works": "..." }]
     `;
 
@@ -110,7 +128,7 @@ export class PerplexityService {
             { role: 'system', content: systemBehavior },
             { role: 'user', content: searchContext }
           ],
-          temperature: 0.2, 
+          temperature: 0.2, // Bassa creatività per evitare allucinazioni
           max_tokens: 4000
         },
         { headers: { 'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}` } }
@@ -120,7 +138,7 @@ export class PerplexityService {
       return await this.processAndSaveOpportunities(rawContent, userId, mode as any);
 
     } catch (error: any) {
-      console.error("❌ Errore API:", error.message);
+      console.error("❌ Errore API Perplexity:", error.message);
       return 0;
     }
   }
@@ -128,12 +146,14 @@ export class PerplexityService {
   private async processAndSaveOpportunities(rawContent: string, userId: string, type: 'daily' | 'weekly' | 'monthly'): Promise<number> {
     let opportunities = [];
     try {
+      // Pulizia aggressiva JSON
       let cleanJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
       const arrayMatch = cleanJson.match(/\[.*\]/s);
       if (arrayMatch) cleanJson = arrayMatch[0];
+      
       opportunities = JSON.parse(cleanJson);
     } catch (e) {
-      console.error("⚠️ JSON Parsing Error.");
+      console.error("⚠️ JSON Parsing Error. Raw content non valido.");
       return 0;
     }
 
@@ -141,7 +161,7 @@ export class PerplexityService {
 
     let savedCount = 0;
     for (const opp of opportunities) {
-      // Filtro link spazzatura
+      // Filtro base link spazzatura
       if (!opp.action_link || opp.action_link.length < 5 || opp.action_link.includes("manpower.it")) continue;
 
       const existing = await db.selectFrom('missions')
@@ -151,10 +171,9 @@ export class PerplexityService {
         .executeTakeFirst();
 
       if (!existing) {
-        // --- FIX PREZZO: Logica migliorata ---
+        // Parsing prezzo migliorato
         let finalReward = this.parseReward(opp.hourly_rate || opp.reward);
-        // Se ritorna 0, proviamo a stimare un default basato sul tipo di lavoro (es. 20€/h) per non mostrare 0
-        if (finalReward === 0) finalReward = 20; 
+        if (finalReward === 0) finalReward = 25; // Default di sicurezza visivo (mai 0)
 
         await db.insertInto('missions')
           .values({
@@ -181,46 +200,25 @@ export class PerplexityService {
     return savedCount;
   }
 
-  // --- FIX PARSER PREZZI AVANZATO ---
+  // --- PARSER PREZZI INTELLIGENTE ---
   private parseReward(rewardStr: string): number {
     if (!rewardStr) return 0;
     
-    const str = rewardStr.toLowerCase().replace(/,/g, ''); // Rimuove virgole (es. 1,000 -> 1000)
+    // Normalizza
+    const str = rewardStr.toString().toLowerCase().replace(/,/g, '').replace(/\./g, ''); 
     
-    // 1. Cerca pattern annuali (es. "50k/yr", "60000 a year")
-    if (str.includes('yr') || str.includes('year') || str.includes('annum')) {
-        const matches = str.match(/(\d+)(k?)/);
+    // 1. Gestione Annuale ("80k/yr", "100,000")
+    if (str.includes('k') || str.includes('yr') || str.includes('year')) {
+        const matches = str.match(/(\d+)/);
         if (matches) {
-            let val = parseFloat(matches[1]);
-            if (matches[2] === 'k') val *= 1000; // Gestisce "50k"
-            return Math.floor(val / 2000); // Converte annuale in orario (circa 2000 ore lavorative)
+            let val = parseInt(matches[0], 10);
+            if (val < 1000) val *= 1000; // se è "80", diventa "80000"
+            return Math.floor(val / 2000); // Annuale -> Orario (circa)
         }
     }
 
-    // 2. Cerca pattern mensili
-    if (str.includes('mo') || str.includes('month')) {
-        const matches = str.match(/(\d+)(k?)/);
-        if (matches) {
-            let val = parseFloat(matches[1]);
-            if (matches[2] === 'k') val *= 1000;
-            return Math.floor(val / 160); // Converte mensile in orario
-        }
-    }
-
-    // 3. Fallback: Cerca il numero più alto nella stringa (spesso è il max del range "15-20")
-    // Se c'è "k" (es. 2k), moltiplica.
-    const numbers = str.match(/(\d+)(\.\d+)?(k?)/g);
-    if (numbers) {
-        // Prende il primo match sensato
-        let valStr = numbers[0]; 
-        let multiplier = 1;
-        if (valStr.includes('k')) {
-            multiplier = 1000;
-            valStr = valStr.replace('k', '');
-        }
-        return Math.floor(parseFloat(valStr) * multiplier);
-    }
-
-    return 0;
+    // 2. Gestione Oraria standard ("50", "$50/hr")
+    const matches = str.match(/(\d+)/);
+    return matches ? parseInt(matches[0], 10) : 0;
   }
 }
