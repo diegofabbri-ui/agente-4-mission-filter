@@ -1,133 +1,114 @@
 import { Router } from 'express';
 import { db } from '../infra/db';
+import { MissionManagerService } from '../services/mission-manager.service';
 import { PerplexityService } from '../services/perplexity.service';
-import { MissionDeveloperService } from '../services/mission-developer.service';
+import { MissionDeveloperService } from '../services/mission-developer.service'; // Il nuovo servizio
 import { authMiddleware } from '../middleware/auth.middleware';
 
-export const missionsRouter = Router();
-const perplexityService = new PerplexityService();
-const developerService = new MissionDeveloperService();
+const missionsRouter = Router();
+const missionManager = new MissionManagerService();
+const hunter = new PerplexityService();
+const developer = new MissionDeveloperService(); // Istanza del nuovo Orchestrator
 
-// --- HELPER PER ERRORI ---
-const handleQuotaError = (error: any, res: any) => {
-    console.error("Errore Caccia:", error.message);
-    if (error.message.includes("Quota")) {
-        return res.status(403).json({ success: false, error: error.message });
+// GET: Recupera le missioni
+missionsRouter.get('/my-missions', async (req: any, res) => {
+  try {
+    const userId = req.user.userId;
+    const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+    const missions = await missionManager.getMissionsByUser(userId, limit);
+    res.json(missions);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Errore recupero missioni" });
+  }
+});
+
+// POST: Caccia Manuale (Daily)
+missionsRouter.post('/hunt', async (req: any, res) => {
+  try {
+    const userId = req.user.userId;
+    const profile = await db.selectFrom('user_ai_profile').selectAll().where('user_id', '=', userId).executeTakeFirst();
+    let manifesto = {};
+    if (profile && profile.career_goal_json) {
+        manifesto = typeof profile.career_goal_json === 'string' ? JSON.parse(profile.career_goal_json) : profile.career_goal_json;
     }
-    res.status(500).json({ error: "Errore interno durante la caccia." });
-};
-
-// --- HELPER RECUPERO MISSIONI ---
-async function fetchNewMissions(userId: string) {
-    return await db.selectFrom('missions')
-        .selectAll()
-        .where('user_id', '=', userId)
-        .where('status', '=', 'pending')
-        .orderBy('created_at', 'desc')
-        .limit(10)
-        .execute();
-}
-
-// 1. CACCIA DAILY
-missionsRouter.post('/hunt', authMiddleware, async (req: any, res) => {
-  try {
-    const userId = req.user.userId;
-    const profile = await db.selectFrom('user_ai_profile').selectAll().where('user_id', '=', userId).executeTakeFirst();
-    if (!profile) return res.status(404).json({ error: "Profilo non trovato." });
     
-    const clientProfile = typeof profile.career_goal_json === 'string' ? JSON.parse(profile.career_goal_json) : profile.career_goal_json;
-    
-    await perplexityService.findGrowthOpportunities(userId, clientProfile, 'daily');
-    const newMissions = await fetchNewMissions(userId);
-    res.json({ success: true, data: newMissions });
-  } catch (error: any) { handleQuotaError(error, res); }
-});
-
-// 2. CACCIA WEEKLY
-missionsRouter.post('/hunt/weekly', authMiddleware, async (req: any, res) => {
-  try {
-    const userId = req.user.userId;
-    const profile = await db.selectFrom('user_ai_profile').selectAll().where('user_id', '=', userId).executeTakeFirst();
-    if (!profile) return res.status(404).json({ error: "Profilo non trovato." });
-
-    const clientProfile = typeof profile.career_goal_json === 'string' ? JSON.parse(profile.career_goal_json) : profile.career_goal_json;
-
-    await perplexityService.findGrowthOpportunities(userId, clientProfile, 'weekly');
-    const newMissions = await fetchNewMissions(userId);
-    res.json({ success: true, data: newMissions });
-  } catch (error: any) { handleQuotaError(error, res); }
-});
-
-// 3. CACCIA MONTHLY
-missionsRouter.post('/hunt/monthly', authMiddleware, async (req: any, res) => {
-  try {
-    const userId = req.user.userId;
-    const profile = await db.selectFrom('user_ai_profile').selectAll().where('user_id', '=', userId).executeTakeFirst();
-    if (!profile) return res.status(404).json({ error: "Profilo non trovato." });
-
-    const clientProfile = typeof profile.career_goal_json === 'string' ? JSON.parse(profile.career_goal_json) : profile.career_goal_json;
-
-    await perplexityService.findGrowthOpportunities(userId, clientProfile, 'monthly');
-    const newMissions = await fetchNewMissions(userId);
-    res.json({ success: true, data: newMissions });
-  } catch (error: any) { handleQuotaError(error, res); }
-});
-
-// 4. ALTRE ROTTE STANDARD
-missionsRouter.get('/my-missions', authMiddleware, async (req: any, res) => {
-  try {
-    const limit = Number(req.query.limit) || 20;
-    const missions = await db.selectFrom('missions').selectAll().where('user_id', '=', req.user.userId).orderBy('created_at', 'desc').limit(limit).execute();
-    res.json({ success: true, data: missions });
-  } catch (e) { res.status(500).json({ error: "Errore lista" }); }
-});
-
-missionsRouter.post('/:id/develop', authMiddleware, async (req: any, res) => {
-  try {
-    const result = await developerService.developStrategy(req.params.id);
-    res.json({ success: true, data: result });
-  } catch (e) { res.status(500).json({ error: "Errore develop" }); }
-});
-
-// --- EXECUTE (ASINCRONO / FIRE & FORGET) ---
-missionsRouter.post('/:id/execute', authMiddleware, async (req: any, res) => {
-  try {
-    const { clientRequirements, attachments } = req.body;
-    const userId = req.user.userId;
-    const userInput = (clientRequirements && clientRequirements.trim().length > 0) ? clientRequirements : "Procedi.";
-    
-    // ⚠️ NON USIAMO AWAIT QUI!
-    // Lanciamo il processo in background e lasciamo che Node lo gestisca
-    developerService.executeChatStep(req.params.id, userId, userInput, attachments || [])
-        .catch(err => {
-            console.error(`❌ ERRORE BACKGROUND (Mission ${req.params.id}):`, err);
-            // In un sistema reale, qui scriveremmo l'errore nel DB per notificare l'utente
-        });
-
-    // Rispondiamo SUBITO al client per evitare il timeout di 30s
-    res.json({ success: true, status: 'processing', message: "Agente avviato in background." });
-    
-  } catch (e: any) { 
-      res.status(500).json({ error: "Errore avvio richiesta." }); 
+    // Eseguiamo la ricerca
+    const count = await hunter.findGrowthOpportunities(userId, manifesto, 'daily');
+    res.json({ success: true, count });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Errore durante la caccia" });
   }
 });
 
-// CHIUSURA MISSIONE
-missionsRouter.post('/:id/complete', authMiddleware, async (req: any, res) => {
+// POST: Caccia Settimanale
+missionsRouter.post('/hunt/weekly', async (req: any, res) => {
   try {
-    await developerService.completeMission(req.params.id);
-    res.json({ success: true, message: "Missione completata. Memoria cancellata." });
-  } catch (e) { 
-      res.status(500).json({ error: "Errore completamento missione." }); 
+    const userId = req.user.userId;
+    const profile = await db.selectFrom('user_ai_profile').selectAll().where('user_id', '=', userId).executeTakeFirst();
+    let manifesto = {};
+    if (profile && profile.career_goal_json) {
+        manifesto = typeof profile.career_goal_json === 'string' ? JSON.parse(profile.career_goal_json) : profile.career_goal_json;
+    }
+    const count = await hunter.findGrowthOpportunities(userId, manifesto, 'weekly');
+    res.json({ success: true, count });
+  } catch (e) {
+    res.status(500).json({ error: "Errore caccia weekly" });
   }
 });
 
-missionsRouter.post('/:id/reject', authMiddleware, async (req: any, res) => {
-    await db.updateTable('missions').set({ status: 'rejected' }).where('id', '=', req.params.id).execute();
-    res.json({ success: true });
+// --- FIX ROUTE DEVELOP & CHAT ---
+// Invece di developStrategy e executeChatStep, usiamo generateExecResponse per TUTTO.
+
+// Vecchia rotta "develop": ora inizializza la missione tramite Orchestrator
+missionsRouter.post('/:id/develop', async (req: any, res) => {
+  try {
+    const missionId = req.params.id;
+    // Se non c'è input, usiamo un default per avviare la genesi
+    const initialInput = req.body.userInput || "Avvia analisi missione e prepara strategia.";
+    
+    const response = await developer.generateExecResponse(missionId, initialInput);
+    res.json({ success: true, response });
+  } catch (e: any) { // Fix TS7006: specificare tipo 'any' o 'Error'
+    console.error("Errore develop:", e);
+    res.status(500).json({ error: e.message || "Errore sviluppo strategia" });
+  }
 });
 
-missionsRouter.patch('/:id/status', authMiddleware, async (req: any, res) => {
-    await db.updateTable('missions').set({ status: req.body.status }).where('id', '=', req.params.id).execute();
-    res.json({ success: true });
+// Vecchia rotta "chat": ora continua l'esecuzione tramite Orchestrator
+missionsRouter.post('/:id/chat', async (req: any, res) => {
+  try {
+    const missionId = req.params.id;
+    const userMessage = req.body.message;
+    
+    if (!userMessage) return res.status(400).json({ error: "Messaggio vuoto" });
+
+    const response = await developer.generateExecResponse(missionId, userMessage);
+    res.json({ reply: response });
+  } catch (e: any) { // Fix TS7006
+    console.error("Errore chat:", e);
+    res.status(500).json({ error: "Errore chat" });
+  }
 });
+
+// Rotta per completare/archiviare la missione
+missionsRouter.post('/:id/complete', async (req: any, res) => {
+  try {
+    const missionId = req.params.id;
+    await developer.completeMission(missionId); // Ora esiste nel service
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: "Errore completamento" });
+  }
+});
+
+// Delete
+missionsRouter.delete('/:id', async (req: any, res) => {
+    try {
+        await db.deleteFrom('missions').where('id', '=', req.params.id).execute();
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({error: "Errore cancellazione"}); }
+});
+
+export { missionsRouter };

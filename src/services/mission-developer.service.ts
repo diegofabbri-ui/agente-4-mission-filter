@@ -10,12 +10,12 @@ import { RagService } from './rag.service';
 // ==================================================================================
 const AI_CONFIG = {
   openai: {
-    model: 'gpt-5.1-chat-latest', // Modello Reasoning.
+    model: 'gpt-5.1-chat-latest', // Modello Reasoning (O1). NON accetta temperature.
   },
   gemini: {
     model: 'gemini-2.5-pro', // Modello Judge ad alta capacità di contesto
     generationConfig: {
-      temperature: 0.0, // Zero creatività, pura logica di classificazione
+      temperature: 0.0, // Zero creatività per il Giudice
       maxOutputTokens: 8192
     }
   },
@@ -51,7 +51,7 @@ export class MissionDeveloperService {
   }
 
   // --- HELPER: CARICAMENTO PROMPT ---
-  private loadSystemPrompt(filename: string, subfolder: string = ''): string {
+  private loadPrompt(filename: string, subfolder: string = ''): string {
     try {
       const pathsToTry = [
         path.join(this.kbPath, subfolder, filename),
@@ -63,6 +63,7 @@ export class MissionDeveloperService {
       for (const p of pathsToTry) {
         if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8');
       }
+      // Fallback
       return "";
     } catch (e) {
       console.warn(`⚠️ Prompt mancante: ${filename}`);
@@ -81,8 +82,10 @@ export class MissionDeveloperService {
 
   /**
    * ==================================================================================
-   * 🎮 MAIN CONTROLLER: GENESI O ESECUZIONE
-   * Gestisce il bivio tra inizializzazione (Layout 2) e chat (Layout 3).
+   * 🎮 MAIN CONTROLLER: ORCHESTRATORE
+   * Gestisce il bivio tra:
+   * 1. GENESI (Layout 2): Creazione Candidatura, Bonus e Piano Strategico.
+   * 2. ESECUZIONE (Layout 3): Chat Loop con Guardrail Vettoriale (A3->A).
    * ==================================================================================
    */
   public async generateExecResponse(missionId: string, userMessage: string): Promise<string> {
@@ -95,26 +98,27 @@ export class MissionDeveloperService {
 
     if (!mission) throw new Error("Missione non trovata.");
 
-    // SE MANCANO GLI ASSET FONDAMENTALI -> FASE GENESI
-    // (Cioè: non abbiamo ancora generato il piano strategico o la candidatura)
+    // LOGICA DI BIVIO:
+    // Se mancano gli asset fondamentali (Piano o Candidatura), siamo alla PRIMA richiesta specifica.
+    // Dobbiamo inizializzare la missione (Fase Genesi).
     if (!mission.analysis_notes || !mission.final_work_content) {
         return await this.runGenesisSequence(mission, userMessage);
     } else {
-        // ALTRIMENTI -> FASE ESECUZIONE CON GUARDRAIL (A3->A / B3->B)
+        // Altrimenti, siamo nel flusso di lavoro continuo (Fase Esecuzione)
         return await this.runExecutionLoop(mission, userMessage);
     }
   }
 
   /**
    * ==================================================================================
-   * 🌱 FASE 1: GENESI (Creazione Asset & Piano Markdown)
-   * Viene eseguita UNA volta alla prima richiesta specifica dell'utente.
+   * 🌱 FASE 1: GENESI (Inizializzazione Asset)
+   * Genera Candidatura, Bonus e Piano di Lavoro (Markdown) basandosi sulla prima richiesta.
    * ==================================================================================
    */
   private async runGenesisSequence(mission: any, specificRequest: string): Promise<string> {
-    console.log("🚀 AVVIO SEQUENZA GENESI...");
+    console.log("🚀 AVVIO SEQUENZA GENESI (Layout 2)...");
 
-    // 1. Recupero dati profilo
+    // 1. Recupero dati profilo per contesto
     let profileData: any = {};
     if (mission.user_id) {
         const p = await db.selectFrom('user_ai_profile').select('career_manifesto').where('user_id', '=', mission.user_id).executeTakeFirst();
@@ -132,26 +136,31 @@ export class MissionDeveloperService {
     // 2. GENERAZIONE CANDIDATURA (GPT-5.1)
     console.log("... Generazione Candidatura");
     const candFile = mission.type === 'monthly' ? 'prompt_1_monthly_candidacy.md' : 'prompt_1_weekly_candidacy.md';
-    let rawPromptCand = this.loadSystemPrompt(candFile, 'developer') || "Generate pitch.";
+    let rawPromptCand = this.loadPrompt(candFile, 'developer') || "Generate pitch.";
     const finalPromptCand = this.replaceTags(rawPromptCand, contextData);
     const candidacy = await this.simpleGptCall(finalPromptCand, `CONTEXT: ${JSON.stringify(mission)}\nGOAL: ${specificRequest}`);
 
     // 3. GENERAZIONE MATERIALE BONUS (GPT-5.1)
     console.log("... Generazione Materiale Bonus");
-    let rawPromptBonus = this.loadSystemPrompt('prompt_10_bonus_material_init.md', 'developer');
+    // Seleziona il prompt bonus corretto in base al tipo
+    let bonusPromptFile = 'prompt_10_bonus_material_init.md';
+    if (mission.type === 'weekly') bonusPromptFile = 'prompt_10_weekly_bonus.md';
+    if (mission.type === 'monthly') bonusPromptFile = 'prompt_10_monthly_bonus.md';
+
+    let rawPromptBonus = this.loadPrompt(bonusPromptFile, 'developer');
     const finalPromptBonus = this.replaceTags(rawPromptBonus, contextData);
     const bonusJsonRaw = await this.simpleGptCall(finalPromptBonus, "Create high-value JSON deliverable.");
     
-    // 4. GENERAZIONE PIANO STRATEGICO (Markdown)
-    // Questo è il "Piano di Lavoro" derivato dal primo comando
+    // 4. GENERAZIONE PIANO STRATEGICO (Markdown - Output del primo comando)
     console.log("... Generazione Piano Strategico (Markdown)");
-    const orchestratorPrompt = this.loadSystemPrompt('prompt_orchestrator.md', 'developer');
+    const orchestratorPrompt = this.loadPrompt('prompt_orchestrator.md', 'developer');
     const strategicPlan = await this.simpleGptCall(
         orchestratorPrompt,
-        `ANALYZE MISSION: ${mission.description}\nUSER REQUEST: ${specificRequest}\n\nTASK: Create a strict Step-by-Step Execution Plan in Markdown.`
+        `ANALYZE MISSION: ${mission.description}\nUSER REQUEST: ${specificRequest}\n\nTASK: Create a strict Step-by-Step Execution Plan in Markdown based on the request.`
     );
 
     // 5. SALVATAGGIO ASSET E PASSAGGIO DI STATO
+    // Kysely gestisce le date, ma .toISOString() è più sicuro per evitare conflitti di tipo
     await db.updateTable('missions')
         .set({
             final_work_content: candidacy,
@@ -160,11 +169,11 @@ export class MissionDeveloperService {
             last_user_request: specificRequest,
             last_agent_response: strategicPlan,
             conversation_history: JSON.stringify([
-                { role: 'user', content: specificRequest },
-                { role: 'assistant', content: strategicPlan }
+                { role: 'user', content: specificRequest, timestamp: new Date() },
+                { role: 'assistant', content: strategicPlan, timestamp: new Date() }
             ]),
             status: 'active',
-            updated_at: new Date()
+            updated_at: new Date().toISOString() as any
         })
         .where('id', '=', mission.id)
         .execute();
@@ -182,8 +191,8 @@ Ecco il **Piano di Lavoro** che seguiremo:\n\n${strategicPlan}`;
 
   /**
    * ==================================================================================
-   * ⚔️ FASE 2: ESECUZIONE CON GUARDRAIL VETTORIALE (A3->A e B3->B)
-   * Gestisce il loop chat quotidiano assicurando aderenza al piano e qualità.
+   * ⚔️ FASE 2: ESECUZIONE CON GUARDRAIL VETTORIALE (A3->A / B3->B)
+   * Loop GPT (Worker) <-> Gemini (Judge) per garantire la qualità vettoriale.
    * ==================================================================================
    */
   private async runExecutionLoop(mission: any, userMessage: string): Promise<string> {
@@ -215,8 +224,8 @@ Ecco il **Piano di Lavoro** che seguiremo:\n\n${strategicPlan}`;
 
     // 3. Prompt Worker (GPT-5.1)
     // Usa un prompt specifico per l'esecuzione del lavoro
-    const workerPrompt = this.loadSystemPrompt('prompt_9_work_execution.md', 'developer') || 
-                         this.loadSystemPrompt('prompt_worker.md', 'developer');
+    const workerPrompt = this.loadPrompt('prompt_9_work_execution.md', 'developer') || 
+                         this.loadPrompt('prompt_worker.md', 'developer');
 
     console.log("📝 Worker generating draft...");
     let draft = await this.simpleGptCall(workerPrompt, contextPacket);
@@ -251,7 +260,7 @@ Ecco il **Piano di Lavoro** che seguiremo:\n\n${strategicPlan}`;
                 targetInstruction = "Focus on STRATEGIC ALIGNMENT. Ensure the tone and goal match the Mission Compass.";
             }
 
-            const fixerPrompt = this.loadSystemPrompt('prompt_5_gpt_fixer_loop.md', 'developer');
+            const fixerPrompt = this.loadPrompt('prompt_5_gpt_fixer_loop.md', 'developer');
             const correctionInput = `
             ORIGINAL DRAFT: ${draft}
             SUPERVISOR CRITIQUE (${evaluation.zone}): ${evaluation.feedback}
@@ -287,7 +296,7 @@ Ecco il **Piano di Lavoro** che seguiremo:\n\n${strategicPlan}`;
             last_user_request: userMessage,
             last_agent_response: draft,
             conversation_history: JSON.stringify(newHistory), // Salviamo tutto il thread
-            updated_at: new Date()
+            updated_at: new Date().toISOString() as any
         })
         .where('id', '=', mission.id)
         .execute();
@@ -295,8 +304,19 @@ Ecco il **Piano di Lavoro** che seguiremo:\n\n${strategicPlan}`;
     return draft;
   }
 
+  /**
+   * Completa e archivia la missione (usato dalla rotta complete)
+   */
+  public async completeMission(missionId: string): Promise<void> {
+      console.log(`🏁 Completamento Missione: ${missionId}`);
+      await db.updateTable('missions')
+          .set({ status: 'completed', updated_at: new Date().toISOString() as any })
+          .where('id', '=', missionId)
+          .execute();
+  }
+
   // ==================================================================================
-  // 🧠 MOTORI AI
+  // 🧠 MOTORI AI (Interfaccia ai modelli)
   // ==================================================================================
 
   /**
@@ -324,7 +344,7 @@ Ecco il **Piano di Lavoro** che seguiremo:\n\n${strategicPlan}`;
    */
   private async geminiJudge(context: string, draft: string): Promise<{ zone: string, score: number, feedback: string }> {
     // Carichiamo il prompt del Giudice (che definisce A3, A, B3, B)
-    const judgePromptMd = this.loadSystemPrompt('system_guardrail_judge.md', 'guardrails');
+    const judgePromptMd = this.loadPrompt('system_guardrail_judge.md', 'guardrails');
     
     if (!judgePromptMd) return { zone: "A", score: 100, feedback: "No judge prompt found." };
 
