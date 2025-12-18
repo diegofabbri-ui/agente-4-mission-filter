@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { missionsRouter } from './routes/missions.routes';
@@ -6,22 +6,23 @@ import { authRouter } from './routes/auth.routes';
 import { userRouter } from './routes/user.routes';
 import { initScheduler } from './cron/scheduler';
 
-// 1. Caricamento ambiente
+// Caricamento variabili d'ambiente
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 /**
- * ⚡ HEALTH CHECK PRIORITARIO
- * Definita prima di ogni middleware per rispondere in microsecondi.
- * Railway usa questa rotta per decidere se il server è "vivo".
+ * ⚡ PROVA DI VITA (Health Check) - PRIORITÀ MASSIMA
+ * Questa rotta è posizionata PRIMA di ogni middleware.
+ * Serve a Railway per confermare che il container è attivo.
  */
-app.get('/', (req: Request, res: Response) => {
+app.get('/', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain');
   res.status(200).send('OK');
 });
 
-// 2. Middleware di base
+// Middleware standard
 app.use(cors());
 app.use(express.json());
 
@@ -33,47 +34,47 @@ app.use('/api/users', userRouter);
 app.use('/api/missions', missionsRouter);
 
 /**
- * 🚨 GESTORE ERRORI
+ * 🚨 GESTIONE ERRORI GLOBALE
  */
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('❌ [SERVER ERROR]:', err);
+app.use((err: any, _req: Request, res: Response, _next: any) => {
+  console.error('❌ [CRITICAL]:', err.message);
   if (!res.headersSent) {
-    res.status(err.status || 500).json({ error: err.message || 'Errore interno' });
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
 /**
  * 🚀 AVVIO SERVER
- * Binding su 0.0.0.0 obbligatorio per l'hosting cloud.
  */
 const server = app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`\n*****************************************`);
-  console.log(`🚀 AGENTE 4: OPERATIVO SULLA PORTA ${PORT}`);
+  console.log(`🚀 AGENTE 4: SISTEMA ATTIVO`);
+  console.log(`📡 PORTA: ${PORT} | MODE: ${process.env.NODE_ENV}`);
   console.log(`*****************************************\n`);
 
   /**
-   * ⏰ SCHEDULER RITARDATO
-   * Avviamo lo scheduler con un leggero ritardo (5 secondi) per lasciare 
-   * che Railway stabilizzi la connessione al container prima di caricare task pesanti.
+   * ⏰ AVVIO SCHEDULER POST-BOOT
+   * Lo inizializziamo con un ritardo di 10 secondi.
+   * Questo garantisce che il server abbia già risposto ai primi "ping" 
+   * di Railway prima di iniziare a caricare i task cron.
    */
   setTimeout(() => {
     try {
       initScheduler();
-      console.log('⏰ Scheduler inizializzato con successo.');
+      console.log('⏰ [SYSTEM] Scheduler attivato correttamente.');
     } catch (error) {
-      console.error('⚠️ Errore avvio scheduler:', error);
+      console.error('⚠️ [SYSTEM] Errore inizializzazione Scheduler:', error);
     }
-  }, 5000);
+  }, 10000);
 });
 
 /**
- * 🛑 GRACEFUL SHUTDOWN
+ * 🛑 GESTIONE SEGNALI (SIGTERM/SIGINT)
  */
 process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM ricevuto: chiusura sicura...');
-  server.close(() => process.exit(0));
-});
-
-process.on('SIGINT', () => {
-  server.close(() => process.exit(0));
+  console.log('👋 SIGTERM ricevuto. Chiusura sicura del server...');
+  server.close(() => {
+    console.log('💤 Processo terminato.');
+    process.exit(0);
+  });
 });
