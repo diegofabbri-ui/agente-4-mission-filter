@@ -6,68 +6,77 @@ import { authRouter } from './routes/auth.routes';
 import { userRouter } from './routes/user.routes';
 import { initScheduler } from './cron/scheduler';
 
-// 1. Configurazione Ambiente
+/**
+ * ⚙️ CONFIGURAZIONE AMBIENTE
+ */
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// 2. Middleware
+// Middleware di base
 app.use(cors());
 app.use(express.json());
 
 /**
- * 🛠 Health Check per Aruba/Railway
- * Deve rispondere immediatamente per evitare il SIGTERM
+ * 🏥 HEALTH CHECK (CRITICO PER RAILWAY/ARUBA)
+ * Questa rotta deve rispondere immediatamente 200 OK.
+ * Impedisce all'host di terminare il container (SIGTERM) durante l'avvio.
  */
 app.get('/', (req: Request, res: Response) => {
   res.status(200).json({
     status: 'online',
-    message: 'Agente 4 Mission Filter API è attivo 🚀',
-    timestamp: new Date().toISOString()
+    service: 'Agente 4 Mission Filter - Sniper Engine',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
   });
 });
 
-// 3. Rotte API
+/**
+ * 🛣️ CONFIGURAZIONE ROTTE API
+ */
 app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/missions', missionsRouter);
 
 /**
- * 🚨 Gestore Errori Globale
+ * 🚨 GLOBAL ERROR HANDLER
+ * Cattura eventuali errori non gestiti evitando il crash del processo.
  */
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('❌ [SERVER ERROR]:', err);
+  console.error('❌ [CRITICAL ERROR]:', err);
   res.status(err.status || 500).json({
-    error: err.name || 'Internal Server Error',
-    message: err.message || 'Errore imprevisto del server'
+    error: err.name || 'InternalServerError',
+    message: err.message || 'Si è verificato un errore imprevisto nel server.'
   });
 });
 
 /**
- * 🚀 Avvio Server (UNICA DICHIARAZIONE)
+ * 🚀 AVVIO SERVER (UNICA DICHIARAZIONE)
+ * Nota: Ascoltiamo su 0.0.0.0 per garantire la visibilità esterna su cloud.
  */
 const server = app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`\n*****************************************`);
-  console.log(`🚀 Agente 4 in ascolto su Aruba/Railway`);
-  console.log(`📡 Endpoint: http://0.0.0.0:${PORT}`);
+  console.log(`🚀 AGENTE 4: SISTEMA OPERATIVO`);
+  console.log(`📡 URL: http://0.0.0.0:${PORT}`);
   console.log(`*****************************************\n`);
 
-  // Inizializza lo scheduler dopo l'avvio del server
+  // Inizializza lo scheduler dopo che il server è pronto
   try {
     initScheduler();
-    console.log('⏰ Scheduler Multi-Tenant inizializzato');
+    console.log('⏰ Scheduler Multi-Tenant caricato (Fuso Orario: Rome)');
   } catch (error) {
-    console.error('⚠️ Errore scheduler:', error);
+    console.error('⚠️ Errore durante l\'avvio dello scheduler:', error);
   }
 });
 
 /**
- * 🛑 Gestione Chiusura Pulita
+ * 🛑 GESTIONE SEGNALI DI CHIUSURA (GRACEFUL SHUTDOWN)
  */
 process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM ricevuto: chiusura in corso...');
+  console.log('👋 SIGTERM ricevuto: arresto del server in corso...');
   server.close(() => {
+    console.log('💤 Processo terminato correttamente.');
     process.exit(0);
   });
 });
