@@ -12,7 +12,7 @@ export class PerplexityService {
   constructor() {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     
-    // Gestione percorsi cross-platform (Dev/Prod)
+    // Gestione percorsi robusta per Dev e Produzione (Railway/Aruba)
     const isProd = process.env.NODE_ENV === 'production' || __dirname.includes('dist');
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
@@ -20,7 +20,7 @@ export class PerplexityService {
   }
 
   /**
-   * Carica i file dalla Knowledge Base cercando in più posizioni possibili
+   * Carica i file di conoscenza (Markdown/JSON) con fallback
    */
   private loadKBFile(filename: string): string {
     const pathsToTry = [
@@ -30,48 +30,44 @@ export class PerplexityService {
     ];
 
     for (const p of pathsToTry) {
-      if (fs.existsSync(p)) {
-        return fs.readFileSync(p, 'utf-8');
-      }
+      if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8');
     }
-    console.warn(`⚠️ File non trovato: ${filename}`);
     return "";
   }
 
   /**
-   * Genera la query SEO dinamica basata sul profilo utente
+   * 🔍 FASE 1: Query di ricerca ampia per evitare "0 risultati"
+   * L'obiettivo è trovare molti contratti Freelance/Remote, lasciando il filtro del tempo all'Auditor.
    */
   private generateSearchQuery(profile: any, mode: string): string {
-    const role = profile.dreamRole || profile.role || "Remote Professional";
+    const role = profile.dreamRole || profile.role || "Professional";
     const timeframe = mode === 'daily' ? 'last 24 hours' : 'last 7 days';
 
-    // Query pulita per non confondere Perplexity con troppi dati
     return `
-      OBJECTIVE: Find high-ROI remote micro-tasks for: "${role}".
-      TIMEFRAME: Published in the ${timeframe}.
-      CRITERIA: Tasks solvable in 30-60 minutes (urgent fixes, setups, audits).
-      SEARCH STRATEGY: Scour job boards, gig marketplaces, and social threads.
-      REQUIREMENT: Each result MUST have a direct application URL.
+      Find ALL new remote freelance, contract, or part-time opportunities for: "${role}".
+      Timeframe: Posted in the ${timeframe}.
+      Requirements: Must be 100% remote. Exclude full-time permanent positions.
+      Focus: Look for project-based work, immediate needs, or technical gig platforms.
     `;
   }
 
   /**
-   * CORE: Algoritmo a due fasi (Hunter + Auditor)
+   * ⚡ CORE ALGORITHM: Hunter (Volume) + Auditor (Qualità)
    */
   public async findGrowthOpportunities(
     userId: string, 
     clientProfile: any, 
     mode: 'daily' | 'weekly' | 'monthly' = 'daily'
   ): Promise<number> {
-    console.log(`\n🚀 [SNIPER ENGINE] Avvio Caccia ${mode.toUpperCase()} - User: ${userId}`);
+    console.log(`\n🕵️‍♂️ [SNIPER ENGINE] Avvio ricerca ${mode.toUpperCase()} per User: ${userId}`);
 
-    // --- FASE 1: THE HUNTER (Perplexity Sonar-Pro) ---
+    // --- FASE 1: THE HUNTER (Perplexity) ---
     const hunterPrompt = this.loadKBFile('system_headhunter_prompt.md');
     const searchQuery = this.generateSearchQuery(clientProfile, mode);
 
     let rawResults = [];
     try {
-      console.log("🔍 [PHASE 1] Hunter in azione (Perplexity)...");
+      console.log("📡 [PHASE 1] Interrogazione Perplexity (Sonar-Pro)...");
       const response = await axios.post(
         'https://api.perplexity.ai/chat/completions',
         {
@@ -80,30 +76,31 @@ export class PerplexityService {
             { role: 'system', content: hunterPrompt },
             { role: 'user', content: searchQuery }
           ],
-          temperature: 0.2
+          temperature: 0.3
         },
         { headers: { 'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}` } }
       );
 
       const content = response.data.choices[0].message.content;
-      
-      // Log di debug per ispezionare la risposta grezza
-      console.log("📥 [PHASE 1] Risposta ricevuta (anteprima):", content.substring(0, 150) + "...");
+      console.log("📥 [PHASE 1] Risposta Raw ricevuta. Estrazione JSON...");
 
+      // Estrae l'array JSON dalla risposta (gestisce eventuale testo extra)
       const jsonMatch = content.match(/\[.*\]/s);
       rawResults = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-      console.log(`📊 [PHASE 1] Trovate ${rawResults.length} potenziali missioni.`);
+      console.log(`📊 [PHASE 1] Il Cacciatore ha trovato ${rawResults.length} potenziali tracce.`);
+
     } catch (error: any) {
-      console.error("❌ Errore Fase Hunter:", error.message);
+      console.error("❌ [PHASE 1] Errore critico Hunter:", error.message);
       return 0;
     }
 
     if (rawResults.length === 0) {
-      console.log("⚠️ Nessuna missione trovata dal cacciatore. Fine ciclo.");
+      console.log("⚠️ Nessun dato grezzo trovato. Caccia terminata.");
       return 0;
     }
 
     // --- FASE 2: THE AUDITOR (OpenAI GPT-4o) ---
+    // Qui applichiamo il filtro severo per i task da 30-60 minuti
     const auditorPrompt = this.loadKBFile('system_headhunter_daily_reviewer.md');
     const blacklist = this.loadKBFile('global_blacklist.json');
 
@@ -115,11 +112,11 @@ export class PerplexityService {
         messages: [
           { 
             role: "system", 
-            content: auditorPrompt || "You are a job reviewer. Filter the list for 30-60 min tasks. Return JSON." 
+            content: auditorPrompt || "You are an expert auditor. Select only freelance/contract tasks that seem solvable in 30-60 min. Return a JSON array under 'approved_missions'." 
           },
           { 
             role: "user", 
-            content: `USER PROFILE: ${JSON.stringify(clientProfile)}\n\nBLACKLIST: ${blacklist}\n\nLEADS TO AUDIT: ${JSON.stringify(rawResults)}` 
+            content: `PROFILE: ${JSON.stringify(clientProfile)}\nBLACKLIST: ${blacklist}\nLEADS: ${JSON.stringify(rawResults)}` 
           }
         ],
         response_format: { type: "json_object" },
@@ -127,20 +124,20 @@ export class PerplexityService {
       });
 
       const auditData = JSON.parse(auditResponse.choices[0].message.content || "{}");
-      // Supportiamo diversi formati di risposta dell'AI
       approvedMissions = auditData.approved_missions || auditData.missions || [];
-      console.log(`✅ [PHASE 2] ${approvedMissions.length} missioni hanno superato il filtro Sniper.`);
+      console.log(`✅ [PHASE 2] L'Auditor ha approvato ${approvedMissions.length} missioni Sniper.`);
+
     } catch (error: any) {
-      console.error("❌ Errore Fase Auditor:", error.message);
+      console.error("❌ [PHASE 2] Errore Auditor:", error.message);
       return 0;
     }
 
-    // --- SALVATAGGIO ---
+    // --- SALVATAGGIO FINALE ---
     return await this.saveMissions(userId, approvedMissions, mode);
   }
 
   /**
-   * Salva le missioni nel DB evitando duplicati tramite URL
+   * Salva le missioni approvate nel DB evitando i duplicati
    */
   private async saveMissions(userId: string, opportunities: any[], mode: string): Promise<number> {
     let count = 0;
@@ -157,37 +154,37 @@ export class PerplexityService {
             .values({
               id: crypto.randomUUID(),
               user_id: userId,
-              title: opp.title || "Untitled Mission",
+              title: opp.title || "Flash Mission",
               company_name: opp.company_name || "N/A",
-              description: opp.reason || opp.snippet || "Nessuna descrizione fornita.",
+              description: opp.reason || opp.snippet || "Nessun dettaglio.",
               source_url: opp.source_url,
-              reward_amount: this.extractNumericReward(opp.salary_raw || opp.reward_amount),
-              estimated_duration_hours: 1, // Default Sniper 30-60 min
+              reward_amount: this.parseSalary(opp.salary_raw),
+              estimated_duration_hours: 1, // Focus Second Income Sniper
               status: 'pending',
               type: mode as any,
-              platform: opp.platform || "Web",
-              match_score: opp.match_score || 80,
+              platform: opp.platform || "Direct",
+              match_score: opp.match_score || 85,
               created_at: new Date().toISOString() as any
             })
             .execute();
           count++;
         }
       } catch (err) {
-        console.error("⚠️ Errore salvataggio singola missione:", err);
+        console.error("⚠️ Errore salvataggio missione:", err);
       }
     }
-    console.log(`💾 Ciclo concluso. ${count} nuove missioni salvate.`);
+    console.log(`💾 Caccia completata. ${count} missioni aggiunte al database.`);
     return count;
   }
 
   /**
-   * Helper per pulire i valori monetari
+   * Pulisce i dati del salario per il DB
    */
-  private extractNumericReward(val: any): number {
+  private parseSalary(val: any): number {
     if (typeof val === 'number') return val;
-    if (!val) return 20; // Default reward per task sniper
+    if (!val) return 20; // Default Sniper Rate
     const cleaned = val.toString().replace(/[^0-9]/g, '');
     const num = parseInt(cleaned, 10);
-    return isNaN(num) ? 20 : (num > 1000 ? Math.floor(num/2000) : num);
+    return isNaN(num) || num === 0 ? 20 : (num > 1000 ? Math.floor(num/2000) : num);
   }
 }
