@@ -6,19 +6,16 @@ import { authRouter } from './routes/auth.routes';
 import { userRouter } from './routes/user.routes';
 import { initScheduler } from './cron/scheduler';
 
-// Caricamento variabili d'ambiente
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 /**
- * ⚡ PROVA DI VITA (Health Check) - PRIORITÀ MASSIMA
- * Questa rotta è posizionata PRIMA di ogni middleware.
- * Serve a Railway per confermare che il container è attivo.
+ * ⚡ HEALTH CHECK PRIORITARIO (L'unico che conta per Railway)
+ * Deve stare SOPRA a tutto, anche a cors e json.
  */
 app.get('/', (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'text/plain');
   res.status(200).send('OK');
 });
 
@@ -26,55 +23,26 @@ app.get('/', (_req: Request, res: Response) => {
 app.use(cors());
 app.use(express.json());
 
-/**
- * 🛣️ ROTTE API
- */
+// Rotte API
 app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/missions', missionsRouter);
 
-/**
- * 🚨 GESTIONE ERRORI GLOBALE
- */
-app.use((err: any, _req: Request, res: Response, _next: any) => {
-  console.error('❌ [CRITICAL]:', err.message);
-  if (!res.headersSent) {
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-/**
- * 🚀 AVVIO SERVER
- */
 const server = app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`\n*****************************************`);
-  console.log(`🚀 AGENTE 4: SISTEMA ATTIVO`);
-  console.log(`📡 PORTA: ${PORT} | MODE: ${process.env.NODE_ENV}`);
-  console.log(`*****************************************\n`);
+  console.log(`🚀 AGENTE 4: SISTEMA ATTIVO SULLA PORTA ${PORT}`);
 
-  /**
-   * ⏰ AVVIO SCHEDULER POST-BOOT
-   * Lo inizializziamo con un ritardo di 10 secondi.
-   * Questo garantisce che il server abbia già risposto ai primi "ping" 
-   * di Railway prima di iniziare a caricare i task cron.
-   */
+  // Ritardiamo lo scheduler di 15 secondi per dare priorità assoluta al boot
   setTimeout(() => {
     try {
       initScheduler();
-      console.log('⏰ [SYSTEM] Scheduler attivato correttamente.');
-    } catch (error) {
-      console.error('⚠️ [SYSTEM] Errore inizializzazione Scheduler:', error);
+      console.log('⏰ [SYSTEM] Scheduler pronto.');
+    } catch (e) {
+      console.error('⚠️ [SYSTEM] Errore scheduler:', e);
     }
-  }, 10000);
+  }, 15000);
 });
 
-/**
- * 🛑 GESTIONE SEGNALI (SIGTERM/SIGINT)
- */
+// Gestione spegnimento
 process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM ricevuto. Chiusura sicura del server...');
-  server.close(() => {
-    console.log('💤 Processo terminato.');
-    process.exit(0);
-  });
+  server.close(() => process.exit(0));
 });
