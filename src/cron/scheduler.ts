@@ -2,32 +2,53 @@ import cron from 'node-cron';
 import { db } from '../infra/db';
 import { PerplexityService } from '../services/perplexity.service';
 
-const BATCH_DELAY_MS = 5000; 
+const hunter = new PerplexityService();
 
-// FIX: Export corretto per index.ts
-export const startScheduler = () => {
-  console.log('⏰ Scheduler Multi-Tenant inizializzato (Rome Time)');
+/**
+ * Inizializza gli scheduler per la caccia alle missioni
+ * (Daily, Weekly, Monthly)
+ */
+export const initScheduler = () => {
+  console.log('⏰ [SCHEDULER] Avvio cicli di caccia automatica...');
 
-  cron.schedule('0 8 * * *', async () => {
-    console.log('🌅 AVVIO CACCIA MASSIVA...');
-    try {
-      const users = await db
-        .selectFrom('users')
-        .innerJoin('user_ai_profile', 'users.id', 'user_ai_profile.user_id')
-        .select(['users.id', 'users.email', 'user_ai_profile.career_goal_json'])
-        .where('users.status', '=', 'active')
-        .execute();
+  // 1. Caccia Daily (Ogni 6 ore)
+  cron.schedule('0 */6 * * *', async () => {
+    console.log('🔍 [CRON] Esecuzione caccia Daily...');
+    await runHuntForAllUsers('daily');
+  });
 
-      console.log(`📋 Trovati ${users.length} utenti attivi.`);
-      const hunter = new PerplexityService();
+  // 2. Caccia Weekly (Ogni Lunedì alle 08:00)
+  cron.schedule('0 8 * * 1', async () => {
+    console.log('🔍 [CRON] Esecuzione caccia Weekly...');
+    await runHuntForAllUsers('weekly');
+  });
 
-      for (const user of users) {
-        if (!user.career_goal_json) continue;
-        try {
-          await hunter.findGrowthOpportunities(user.id, user.career_goal_json);
-        } catch (e) { console.error(`Errore caccia ${user.email}`, e); }
-        await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
-      }
-    } catch (e) { console.error("Errore scheduler:", e); }
-  }, { timezone: "Europe/Rome" });
+  // 3. Caccia Monthly (Il primo di ogni mese alle 09:00)
+  cron.schedule('0 9 1 * *', async () => {
+    console.log('🔍 [CRON] Esecuzione caccia Monthly...');
+    await runHuntForAllUsers('monthly');
+  });
 };
+
+/**
+ * Helper per eseguire la caccia per tutti gli utenti attivi
+ */
+async function runHuntForAllUsers(mode: 'daily' | 'weekly' | 'monthly') {
+  try {
+    const users = await db.selectFrom('users').select(['id']).where('status', '=', 'active').execute();
+    
+    for (const user of users) {
+      const profile = await db.selectFrom('user_ai_profile')
+        .selectAll()
+        .where('user_id', '=', user.id)
+        .executeTakeFirst();
+      
+      if (profile) {
+        console.log(`📡 Caccia ${mode} per utente: ${user.id}`);
+        await hunter.findGrowthOpportunities(user.id, profile, mode);
+      }
+    }
+  } catch (error) {
+    console.error(`❌ Errore durante il cron ${mode}:`, error);
+  }
+}
