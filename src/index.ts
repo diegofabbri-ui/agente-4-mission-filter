@@ -6,43 +6,75 @@ import { authRouter } from './routes/auth.routes';
 import { userRouter } from './routes/user.routes';
 import { initScheduler } from './cron/scheduler';
 
+// 1. Inizializzazione Ambiente
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 /**
- * ⚡ HEALTH CHECK PRIORITARIO (L'unico che conta per Railway)
- * Deve stare SOPRA a tutto, anche a cors e json.
+ * ⚡ HEALTH CHECK PRIORITARIO (L'ULTIMO BALUARDO)
+ * Railway monitora questa rotta per decidere se uccidere il container (SIGTERM).
+ * Deve stare SOPRA a tutto, perfino sopra a cors() e express.json().
  */
 app.get('/', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain');
   res.status(200).send('OK');
 });
 
-// Middleware standard
+// 2. Middleware di base
 app.use(cors());
 app.use(express.json());
 
-// Rotte API
+/**
+ * 🛣️ ROTTE API
+ */
 app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/missions', missionsRouter);
 
-const server = app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`🚀 AGENTE 4: SISTEMA ATTIVO SULLA PORTA ${PORT}`);
+/**
+ * 🚨 GLOBAL ERROR HANDLER
+ */
+app.use((err: any, _req: Request, res: Response, _next: any) => {
+  console.error('❌ [SERVER ERROR]:', err.message);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Errore interno del server' });
+  }
+});
 
-  // Ritardiamo lo scheduler di 15 secondi per dare priorità assoluta al boot
+/**
+ * 🚀 AVVIO SERVER
+ */
+const server = app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`\n*****************************************`);
+  console.log(`🚀 AGENTE 4: SISTEMA OPERATIVO ATTIVO`);
+  console.log(`📡 PORTA: ${PORT} | AMBIENTE: ${process.env.NODE_ENV}`);
+  console.log(`*****************************************\n`);
+
+  /**
+   * ⏰ SCHEDULER & AI BOOT (DELAYED)
+   * Carichiamo lo scheduler con un ritardo di 20 secondi.
+   * Questo garantisce che Railway abbia già completato 2-3 cicli di 
+   * Health Check positivi prima di impegnare la CPU con l'AI.
+   */
   setTimeout(() => {
     try {
       initScheduler();
-      console.log('⏰ [SYSTEM] Scheduler pronto.');
-    } catch (e) {
-      console.error('⚠️ [SYSTEM] Errore scheduler:', e);
+      console.log('⏰ [SYSTEM] Scheduler attivato correttamente dopo il boot.');
+    } catch (error) {
+      console.error('⚠️ [SYSTEM] Errore inizializzazione Scheduler:', error);
     }
-  }, 15000);
+  }, 20000); 
 });
 
-// Gestione spegnimento
+/**
+ * 🛑 GESTIONE SEGNALI DI SISTEMA
+ */
 process.on('SIGTERM', () => {
-  server.close(() => process.exit(0));
+  console.log('👋 SIGTERM: Chiusura ordinata del server...');
+  server.close(() => {
+    console.log('💤 Processo terminato.');
+    process.exit(0);
+  });
 });
