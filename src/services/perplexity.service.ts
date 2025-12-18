@@ -12,7 +12,7 @@ export class PerplexityService {
   constructor() {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     
-    // Gestione percorsi per ambiente locale (src) e produzione (dist)
+    // Gestione percorsi cross-platform (Dev vs Prod su Railway/Aruba)
     const isProd = process.env.NODE_ENV === 'production' || __dirname.includes('dist');
     this.kbPath = isProd 
       ? path.join(process.cwd(), 'dist', 'knowledge_base')
@@ -20,7 +20,7 @@ export class PerplexityService {
   }
 
   /**
-   * Carica i file di testo con fallback su diversi percorsi
+   * Caricamento file KB con fallback
    */
   private loadKBFile(filename: string): string {
     const pathsToTry = [
@@ -36,12 +36,13 @@ export class PerplexityService {
   }
 
   /**
-   * Genera la query di ricerca per Perplexity
+   * Genera la query di ricerca ottimizzata per "Assistente Virtuale / Freelance"
    */
   private generateSearchQuery(role: string, mode: string): string {
     const timeframe = mode === 'daily' ? 'last 24 hours' : 'last 7 days';
-    return `Find 15 remote freelance or contract job postings for "${role}" published in the ${timeframe}. 
-    Exclude full-time roles. Provide direct application URLs.`;
+    return `Find 15 remote freelance, contract, or part-time job postings for "${role}" published in the ${timeframe}. 
+    Exclude full-time permanent roles. Focus on immediate needs or project-based tasks. 
+    Ensure results include a direct URL to the job post.`;
   }
 
   /**
@@ -52,27 +53,26 @@ export class PerplexityService {
     clientProfile: any, 
     mode: 'daily' | 'weekly' | 'monthly' = 'daily'
   ): Promise<number> {
-    console.log(`\n🕵️‍♂️ [SNIPER ENGINE] Avvio sessione ${mode.toUpperCase()} - User: ${userId}`);
+    console.log(`\n🕵️‍♂️ [SNIPER ENGINE] Inizio elaborazione ${mode.toUpperCase()} - User: ${userId}`);
 
-    // 1. Estrazione Ruolo dal Profilo (con fallback)
-    const role = clientProfile.dreamRole || clientProfile.role || "Freelance Professional";
+    // 1. Estrazione Ruolo dal profilo utente
+    const role = clientProfile.dreamRole || clientProfile.role || "Assistente Virtuale";
     
-    // 2. Caricamento e COMPILAZIONE del Prompt
+    // 2. Caricamento e Compilazione del Prompt Hunter
     let hunterPrompt = this.loadKBFile('system_headhunter_prompt.md');
-    
-    // 🔥 FIX CRUCIALE: Sostituzione dei segnaposto nel file Markdown
     hunterPrompt = hunterPrompt
       .replace(/{DREAM_ROLE_KEYWORD}/g, role)
       .replace(/{ROLE}/g, role);
 
     const searchQuery = this.generateSearchQuery(role, mode);
 
-    console.log(`📡 [DEBUG] Ruolo iniettato: **${role}**`);
+    console.log(`📡 [DEBUG] Ruolo iniettato con successo: **${role}**`);
 
     // --- FASE 1: THE HUNTER (Perplexity) ---
     let rawResults = [];
     try {
       console.log("📡 [PHASE 1] Interrogazione Perplexity (Sonar-Pro)...");
+      
       const response = await axios.post(
         'https://api.perplexity.ai/chat/completions',
         {
@@ -83,22 +83,32 @@ export class PerplexityService {
           ],
           temperature: 0.2
         },
-        { headers: { 'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}` } }
+        { 
+          headers: { 'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}` },
+          timeout: 45000 // ⏱️ Timeout 45s per evitare il "freeze" del container
+        }
       );
 
-      const content = response.data.choices[0].message.content;
-      
-      // Estrazione dell'array JSON dalla risposta
+      const content = response.data.choices[0]?.message?.content;
+      if (!content) throw new Error("Risposta API vuota");
+
       const jsonMatch = content.match(/\[.*\]/s);
       rawResults = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
       
-      console.log(`📊 [PHASE 1] Trovate ${rawResults.length} potenziali tracce.`);
+      console.log(`📊 [PHASE 1] Il Cacciatore ha trovato ${rawResults.length} potenziali tracce.`);
     } catch (error: any) {
-      console.error("❌ [PHASE 1] Errore Hunter:", error.message);
-      return 0;
+      if (error.code === 'ECONNABORTED') {
+        console.error("❌ [PHASE 1] TIMEOUT: L'API Perplexity è stata troppo lenta.");
+      } else {
+        console.error("❌ [PHASE 1] Errore critico Hunter:", error.message);
+      }
+      return 0; // Esci senza crashare
     }
 
-    if (rawResults.length === 0) return 0;
+    if (rawResults.length === 0) {
+      console.log("⚠️ [PHASE 1] Nessuna traccia trovata. Caccia sospesa.");
+      return 0;
+    }
 
     // --- FASE 2: THE AUDITOR (OpenAI GPT-4o) ---
     const auditorPrompt = this.loadKBFile('system_headhunter_daily_reviewer.md');
@@ -112,11 +122,11 @@ export class PerplexityService {
         messages: [
           { 
             role: "system", 
-            content: auditorPrompt || "Review these jobs and pick the best micro-tasks. Return JSON." 
+            content: auditorPrompt || "You are an expert auditor. Select only freelance/contract tasks. Return JSON." 
           },
           { 
             role: "user", 
-            content: `PROFILE: ${JSON.stringify(clientProfile)}\nBLACKLIST: ${blacklist}\nLEADS: ${JSON.stringify(rawResults)}` 
+            content: `USER PROFILE: ${JSON.stringify(clientProfile)}\n\nBLACKLIST: ${blacklist}\n\nLEADS TO AUDIT: ${JSON.stringify(rawResults)}` 
           }
         ],
         response_format: { type: "json_object" },
@@ -125,17 +135,18 @@ export class PerplexityService {
 
       const auditData = JSON.parse(auditResponse.choices[0].message.content || "{}");
       approvedMissions = auditData.approved_missions || auditData.missions || [];
-      console.log(`✅ [PHASE 2] Approvate ${approvedMissions.length} missioni Sniper.`);
+      console.log(`✅ [PHASE 2] L'Auditor ha approvato ${approvedMissions.length} missioni.`);
     } catch (error: any) {
       console.error("❌ [PHASE 2] Errore Auditor:", error.message);
       return 0;
     }
 
+    // --- SALVATAGGIO ---
     return await this.saveMissions(userId, approvedMissions, mode);
   }
 
   /**
-   * Salvataggio a DB con prevenzione duplicati
+   * Salvataggio nel database con prevenzione duplicati
    */
   private async saveMissions(userId: string, opportunities: any[], mode: string): Promise<number> {
     let count = 0;
@@ -152,29 +163,33 @@ export class PerplexityService {
             .values({
               id: crypto.randomUUID(),
               user_id: userId,
-              title: opp.title || "Mission",
+              title: opp.title || "Missione Sniper",
               company_name: opp.company_name || "N/A",
-              description: opp.reason || opp.snippet || "Nessuna descrizione.",
+              description: opp.reason || opp.snippet || "Nessun dettaglio extra.",
               source_url: opp.source_url,
-              reward_amount: this.cleanSalary(opp.salary_raw),
+              reward_amount: this.parseReward(opp.salary_raw),
               estimated_duration_hours: 1,
               status: 'pending',
               type: mode as any,
               platform: opp.platform || "Web",
-              match_score: opp.match_score || 85,
+              match_score: opp.match_score || 80,
               created_at: new Date().toISOString() as any
             })
             .execute();
           count++;
         }
       } catch (err) {
-        console.error("⚠️ Errore salvataggio missione:", err);
+        console.error("⚠️ Errore salvataggio singola missione:", err);
       }
     }
+    console.log(`💾 Ciclo completato. ${count} nuove missioni salvate nel database.`);
     return count;
   }
 
-  private cleanSalary(val: any): number {
+  /**
+   * Pulisce i dati del compenso
+   */
+  private parseReward(val: any): number {
     if (typeof val === 'number') return val;
     if (!val) return 25;
     const num = parseInt(val.toString().replace(/[^0-9]/g, ''), 10);

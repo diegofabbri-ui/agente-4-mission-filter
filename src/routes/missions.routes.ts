@@ -3,7 +3,7 @@ import { db } from '../infra/db';
 import { MissionManagerService } from '../services/mission-manager.service';
 import { PerplexityService } from '../services/perplexity.service';
 import { MissionDeveloperService } from '../services/mission-developer.service';
-import { authMiddleware, AuthRequest } from '../middleware/auth.middleware';
+import { authMiddleware } from '../middleware/auth.middleware';
 
 const missionsRouter = Router();
 
@@ -13,14 +13,13 @@ const hunter = new PerplexityService();
 const developer = new MissionDeveloperService();
 
 /**
- * 🛡️ PROTEZIONE MIDDLEWARE
- * Applichiamo authMiddleware a tutte le rotte del router per garantire 
- * che req.user sia sempre popolato.
+ * 🛡️ MIDDLEWARE DI PROTEZIONE
+ * Applica il controllo JWT a tutte le rotte sottostanti.
  */
 missionsRouter.use(authMiddleware as any);
 
 /**
- * 📥 GET: Recupera la lista delle missioni dell'utente
+ * 📥 GET: Recupera le missioni dell'utente loggato
  */
 missionsRouter.get('/my-missions', async (req: any, res: Response) => {
   try {
@@ -29,20 +28,20 @@ missionsRouter.get('/my-missions', async (req: any, res: Response) => {
     const missions = await missionManager.getMissionsByUser(userId, limit);
     res.json(missions);
   } catch (e) {
-    console.error("❌ Errore recupero missioni:", e);
-    res.status(500).json({ error: "Errore nel caricamento delle missioni." });
+    console.error("❌ [GET MY-MISSIONS] Errore:", e);
+    res.status(500).json({ error: "Errore nel caricamento missioni." });
   }
 });
 
 /**
- * 🚀 POST: Avvio Caccia DAILY (Asincrona)
- * Risponde subito per evitare il timeout di Railway/Aruba.
+ * 🚀 POST: Avvio Caccia DAILY (Asincrona Anti-Crash)
+ * Risponde istantaneamente per evitare il SIGTERM di Railway.
  */
 missionsRouter.post('/hunt', async (req: any, res: Response) => {
   try {
     const userId = req.user.userId;
 
-    // 1. Recupero rapido del profilo AI (DB)
+    // 1. Recupero immediato del profilo per la ricerca
     const profile = await db.selectFrom('user_ai_profile')
       .selectAll()
       .where('user_id', '=', userId)
@@ -55,22 +54,29 @@ missionsRouter.post('/hunt', async (req: any, res: Response) => {
           : profile.career_goal_json;
     }
 
-    // 2. RISPOSTA IMMEDIATA: Confermiamo l'avvio al frontend
-    res.json({ 
+    // 2. RISPOSTA IMMEDIATA
+    // Chiudiamo la connessione HTTP. Railway vede "Successo" e non killa il container.
+    res.status(202).json({ 
       success: true, 
-      message: "Caccia 'Second Income' avviata in background. Le missioni appariranno a breve." 
+      message: "Motore Sniper avviato. Le nuove missioni appariranno a breve." 
     });
 
-    // 3. ESECUZIONE IN BACKGROUND (senza await)
-    // Non blocca la risposta HTTP, permettendo all'AI di prendersi il tempo necessario.
-    hunter.findGrowthOpportunities(userId, manifesto, 'daily')
-      .then(count => console.log(`✅ [BACKGROUND] Caccia Daily conclusa. Nuove missioni: ${count}`))
-      .catch(err => console.error(`❌ [BACKGROUND] Errore durante la caccia Daily:`, err));
+    // 3. PROCESSO IN BACKGROUND
+    // setImmediate garantisce che la risposta sopra venga inviata prima di iniziare questo blocco
+    setImmediate(async () => {
+      try {
+        console.log(`📡 [ASYNC] Avvio caccia DAILY per ${userId}...`);
+        const count = await hunter.findGrowthOpportunities(userId, manifesto, 'daily');
+        console.log(`✅ [ASYNC] Caccia terminata. Trovate ${count} nuove missioni.`);
+      } catch (err) {
+        console.error("❌ [ASYNC ERROR] Errore durante la caccia background:", err);
+      }
+    });
 
   } catch (e) {
-    console.error("❌ Errore inizializzazione caccia:", e);
+    console.error("❌ [HUNT] Errore inizializzazione:", e);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Impossibile avviare la caccia." });
+      res.status(500).json({ error: "Impossibile avviare il motore di caccia." });
     }
   }
 });
@@ -93,14 +99,17 @@ missionsRouter.post('/hunt/weekly', async (req: any, res: Response) => {
           : profile.career_goal_json;
     }
 
-    res.json({ success: true, message: "Analisi settimanale avviata in background." });
+    res.status(202).json({ success: true, message: "Ricerca settimanale in corso." });
 
-    hunter.findGrowthOpportunities(userId, manifesto, 'weekly')
-      .then(count => console.log(`✅ [BACKGROUND] Caccia Weekly conclusa: ${count}`))
-      .catch(err => console.error(`❌ [BACKGROUND] Errore caccia Weekly:`, err));
-
+    setImmediate(async () => {
+      try {
+        await hunter.findGrowthOpportunities(userId, manifesto, 'weekly');
+      } catch (err) {
+        console.error("❌ [ASYNC WEEKLY] Errore:", err);
+      }
+    });
   } catch (e) {
-    res.status(500).json({ error: "Errore avvio caccia settimanale." });
+    res.status(500).json({ error: "Errore caccia settimanale." });
   }
 });
 
@@ -110,23 +119,22 @@ missionsRouter.post('/hunt/weekly', async (req: any, res: Response) => {
 missionsRouter.post('/:id/develop', async (req: any, res: Response) => {
   try {
     const missionId = req.params.id;
-    const initialInput = req.body.userInput || "Avvia analisi missione e prepara strategia.";
+    const initialInput = req.body.userInput || "Inizia analisi strategica.";
     const response = await developer.generateExecResponse(missionId, initialInput);
     res.json({ success: true, response });
   } catch (e: any) {
-    console.error("❌ Errore sviluppo missione:", e);
-    res.status(500).json({ error: e.message || "Errore durante lo sviluppo." });
+    res.status(500).json({ error: "Errore nello sviluppo della strategia." });
   }
 });
 
 /**
- * 💬 POST: Chat Mission (Esecuzione guidata)
+ * 💬 POST: Chat interattiva sulla missione
  */
 missionsRouter.post('/:id/chat', async (req: any, res: Response) => {
   try {
     const missionId = req.params.id;
     const userMessage = req.body.message;
-    if (!userMessage) return res.status(400).json({ error: "Messaggio vuoto." });
+    if (!userMessage) return res.status(400).json({ error: "Messaggio mancante." });
 
     const response = await developer.generateExecResponse(missionId, userMessage);
     res.json({ reply: response });
@@ -136,7 +144,7 @@ missionsRouter.post('/:id/chat', async (req: any, res: Response) => {
 });
 
 /**
- * ✅ POST: Completa/Archivia Missione
+ * ✅ POST: Segna come completata
  */
 missionsRouter.post('/:id/complete', async (req: any, res: Response) => {
   try {
@@ -144,24 +152,24 @@ missionsRouter.post('/:id/complete', async (req: any, res: Response) => {
     await developer.completeMission(missionId);
     res.json({ success: true });
   } catch (e: any) {
-    res.status(500).json({ error: "Errore durante il completamento." });
+    res.status(500).json({ error: "Errore nel completamento missione." });
   }
 });
 
 /**
- * 🗑️ DELETE: Rimuovi Missione
+ * 🗑️ DELETE: Elimina missione
  */
 missionsRouter.delete('/:id', async (req: any, res: Response) => {
-    try {
-        const userId = req.user.userId;
-        await db.deleteFrom('missions')
-          .where('id', '=', req.params.id)
-          .where('user_id', '=', userId)
-          .execute();
-        res.json({ success: true });
-    } catch(e) { 
-        res.status(500).json({ error: "Errore durante la cancellazione." }); 
-    }
+  try {
+    const userId = req.user.userId;
+    await db.deleteFrom('missions')
+      .where('id', '=', req.params.id)
+      .where('user_id', '=', userId)
+      .execute();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: "Errore nella cancellazione." });
+  }
 });
 
 export { missionsRouter };
